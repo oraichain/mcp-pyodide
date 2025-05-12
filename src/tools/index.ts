@@ -2,8 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 export const EXECUTE_PYTHON_TOOL: Tool = {
   name: 'python_execute',
-  description:
-    'Execute Python code with output capture. When generating images, they will be automatically saved to the output directory in /mnt instead of being displayed. Images can be accessed from the saved file paths that will be included in the output.',
+  description: 'Execute Python code with output capture.',
   inputSchema: {
     type: 'object',
     properties: {
