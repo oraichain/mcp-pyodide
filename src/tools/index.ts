@@ -1,81 +1,81 @@
-import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 export const EXECUTE_PYTHON_TOOL: Tool = {
-  name: "pyodide_execute",
+  name: 'python_execute',
   description:
-    "Execute Python code using Pyodide with output capture. When generating images, they will be automatically saved to the output directory instead of being displayed. Images can be accessed from the saved file paths that will be included in the output.",
+    'Execute Python code with output capture. When generating images, they will be automatically saved to the output directory in /mnt instead of being displayed. Images can be accessed from the saved file paths that will be included in the output.',
   inputSchema: {
-    type: "object",
+    type: 'object',
     properties: {
       code: {
-        type: "string",
-        description: "Python code to execute",
+        type: 'string',
+        description: 'Python code to execute'
       },
       timeout: {
-        type: "number",
-        description: "Execution timeout in milliseconds (default: 5000)",
-      },
+        type: 'number',
+        description: 'Execution timeout in milliseconds (default: 5000)'
+      }
     },
-    required: ["code"],
-  },
+    required: ['code']
+  }
 };
 
 export const INSTALL_PYTHON_PACKAGES_TOOL: Tool = {
-  name: "pyodide_install-packages",
+  name: 'pyodide_install-packages',
   description:
-    "Install Python packages using Pyodide. Multiple packages can be specified using space-separated format.",
+    'Install Python packages using Pyodide. Multiple packages can be specified using space-separated format.',
   inputSchema: {
-    type: "object",
+    type: 'object',
     properties: {
       package: {
-        type: "string",
+        type: 'string',
         description:
-          "Python package(s) to install. For multiple packages, use space-separated format (e.g., 'numpy matplotlib pandas').",
-      },
+          "Python package(s) to install. For multiple packages, use space-separated format (e.g., 'numpy matplotlib pandas')."
+      }
     },
-    required: ["package"],
-  },
+    required: ['package']
+  }
 };
 
 export const GET_MOUNT_POINTS_TOOL: Tool = {
-  name: "pyodide_get-mount-points",
-  description: "List mounted directories",
+  name: 'python_get_dirs',
+  description: 'List mounted directories',
   inputSchema: {
-    type: "object",
-    properties: {},
-  },
+    type: 'object',
+    properties: {}
+  }
 };
 
 export const LIST_MOUNTED_DIRECTORY_TOOL: Tool = {
-  name: "pyodide_list-mounted-directory",
-  description: "List contents of a mounted directory",
+  name: 'pyodide_list-mounted-directory',
+  description: 'List contents of a mounted directory',
   inputSchema: {
-    type: "object",
+    type: 'object',
     properties: {
       mountName: {
-        type: "string",
-        description: "Name of the mount point",
-      },
+        type: 'string',
+        description: 'Name of the mount point'
+      }
     },
-    required: ["mountName"],
-  },
+    required: ['mountName']
+  }
 };
 
 export const READ_IMAGE_TOOL: Tool = {
-  name: "pyodide_read-image",
-  description: "Read an image from a mounted directory",
+  name: 'pyodide_read-image',
+  description: 'Read an image from a mounted directory',
   inputSchema: {
-    type: "object",
+    type: 'object',
     properties: {
       mountName: {
-        type: "string",
-        description: "Name of the mount point",
+        type: 'string',
+        description: 'Name of the mount point'
       },
       imagePath: {
-        type: "string",
-        description: "Path of the image file",
-      },
+        type: 'string',
+        description: 'Path of the image file'
+      }
     },
-    required: ["mountName", "imagePath"],
-  },
+    required: ['mountName', 'imagePath']
+  }
 };

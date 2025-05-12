@@ -16,34 +16,33 @@ function extractPythonPackages(pythonCode: string): string[] {
 
 (async () => {
   const pyodideManager = PyodideManager.getInstance();
-  const sessionId = 'ducpl';
   const scriptContent = `
-from matplotlib import pyplot as plt
-
-fig, ax = plt.subplots()
-
-fruits = ['apple', 'blueberry', 'cherry', 'orange']
-counts = [40, 100, 30, 55]
-bar_labels = ['red', 'blue', '_red', 'orange']
-bar_colors = ['tab:red', 'tab:blue', 'tab:red', 'tab:orange']
-
-ax.bar(fruits, counts, label=bar_labels, color=bar_colors)
-
-ax.set_ylabel('fruit supply')
-ax.set_title('Fruit supply by kind and color')
-ax.legend(title='Fruit color')
-
-plt.savefig('/mnt/data/fruit.png')
+import matplotlib.pyplot as plt                                                                                                                                                     
+                                                                                                                                                                                     
+# Data provided by you                                                                                                                                                              
+categories = ['Apples', 'Bananas', 'Oranges', 'Grapes']                                                                                                                             
+values = [25, 30, 15, 20]                                                                                                                                                           
+                                                                                                                                                                                     
+# Set title and labels                                                                                                                                                              
+plt.title('Fruit Sales')                                                                                                                                                            
+plt.xlabel('Fruit Type')                                                                                                                                                            
+plt.ylabel('Sales (in units)')                                                                                                                                                      
+                                                                                                                                                                                    
+# Use skyblue color for the bars                                                                                                                                                    
+plt.bar(categories, values, color='#87CEEB')  # Assuming '#87CEEB' is the skyblue color code                                                                                        
+                                                                                                                                                                                    
+# Save the chart as /mnt/data/chart.png                                                                                                                                             
+plt.savefig('/mnt/data/chart.png') 
 
 `;
   await pyodideManager.initialize('./cache');
-  await pyodideManager.mountDirectory('data', `data/${sessionId}`);
+  await pyodideManager.mountDirectory('data', `data`);
 
   const packages = extractPythonPackages(scriptContent);
   console.log(packages);
   await Promise.all(packages.map((pkg) => pyodideManager.installPackage(pkg)));
   await pyodideManager.executePython(scriptContent, 10000);
 
-  const output = execSync(`chafa data/${sessionId}/fruit.png`).toString();
+  const output = execSync(`chafa data/chart.png`).toString();
   console.log(output);
 })();
