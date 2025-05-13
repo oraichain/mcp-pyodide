@@ -140,14 +140,14 @@ class PyodideManager {
 
   async initialize(packageCacheDir: string): Promise<boolean> {
     try {
-      console.error("Initializing Pyodide...");
+      logger.error("Initializing Pyodide...");
       this.pyodide = await loadPyodide({
         packageCacheDir,
         stdout: (text: string) => {
-          //console.log("[Python stdout]:", text);
+          // logger.info("[Python stdout]:", text);
         },
         stderr: (text: string) => {
-          //console.error("[Python stderr]:", text);
+          // logger.error("[Python stderr]:", text);
         },
         jsglobals: {
           clearInterval,
@@ -190,10 +190,10 @@ class PyodideManager {
           },
         },
       });
-      console.error("Pyodide initialized successfully");
+      logger.error("Pyodide initialized successfully");
       return true;
     } catch (error) {
-      console.error("Failed to initialize Pyodide:", error);
+      logger.error("Failed to initialize Pyodide:", error);
       return false;
     }
   }
@@ -212,7 +212,7 @@ class PyodideManager {
       // Create directory if it doesn't exist
       if (!fs.existsSync(absolutePath)) {
         fs.mkdirSync(absolutePath, { recursive: true });
-        console.error(`Created directory: ${absolutePath}`);
+        logger.error(`Created directory: ${absolutePath}`);
       }
 
       const mountPoint = `/mnt/${name}`;
@@ -232,7 +232,7 @@ class PyodideManager {
 
       return true;
     } catch (error) {
-      console.error(`Failed to mount directory ${hostPath}:`, error);
+      logger.error(`Failed to mount directory ${hostPath}:`, error);
       return false;
     }
   }
@@ -611,7 +611,7 @@ list_directory("${mountConfig.mountPoint}")
           }
         }
       } catch (error) {
-        console.error(`Error scanning directory ${dirPath}:`, error);
+        logger.error(`Error scanning directory ${dirPath}:`, error);
       }
     };
 

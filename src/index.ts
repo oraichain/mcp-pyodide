@@ -17,7 +17,7 @@ async function runServer() {
     const server = createMCPServer();
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    logger.info("Pyodide MCP Server running on stdio");
+    logger.error("Pyodide MCP Server running on stdio");
   }
 }
 
