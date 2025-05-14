@@ -1,5 +1,5 @@
-import { execSync } from 'child_process';
-import { PyodideManager } from './src/lib/pyodide/pyodide-manager.js';
+import { execSync } from "child_process";
+import { PyodideManager } from "./src/lib/pyodide/pyodide-manager.js";
 
 // Function to extract Python packages from a Python script
 function extractPythonPackages(pythonCode: string): string[] {
@@ -15,7 +15,7 @@ function extractPythonPackages(pythonCode: string): string[] {
 }
 
 (async () => {
-  const pyodideManager = PyodideManager.getInstance();
+  const pyodideManager = PyodideManager.getInstance("local-testing");
   const scriptContent = `
 import matplotlib.pyplot as plt                                                                                                                                                     
                                                                                                                                                                                      
@@ -31,18 +31,11 @@ plt.ylabel('Sales (in units)')
 # Use skyblue color for the bars                                                                                                                                                    
 plt.bar(categories, values, color='#87CEEB')  # Assuming '#87CEEB' is the skyblue color code                                                                                        
                                                                                                                                                                                     
-# Save the chart as /mnt/data/chart.png                                                                                                                                             
-plt.savefig('/mnt/data/chart.png') 
+# Save the chart as /mnt/local-testing/data/chart.png                                                                                                                                             
+plt.savefig('/mnt/local-testing/data/chart.png') 
 
 `;
-  await pyodideManager.initialize('./cache');
-  await pyodideManager.mountDirectory('data', `data`);
-
-  const packages = extractPythonPackages(scriptContent);
-  console.log(packages);
-  await Promise.all(packages.map((pkg) => pyodideManager.installPackage(pkg)));
+  await pyodideManager.initialize("./cache");
+  await pyodideManager.mountDirectory("data", `data`);
   await pyodideManager.executePython(scriptContent, 10000);
-
-  const output = execSync(`chafa data/chart.png`).toString();
-  console.log(output);
 })();

@@ -46,12 +46,13 @@ function createMCPServer(): Server {
     tools.EXECUTE_PYTHON_TOOL,
     // tools.INSTALL_PYTHON_PACKAGES_TOOL,
     tools.GET_MOUNT_POINTS_TOOL,
-    // tools.LIST_MOUNTED_DIRECTORY_TOOL
+    tools.LIST_MOUNTED_DIRECTORY_TOOL,
     // tools.READ_IMAGE_TOOL,
   ];
 
   const isExecutePythonArgs = type({
     code: "string",
+    sessionId: "string",
     "timeout?": "number",
   });
 
@@ -68,19 +69,19 @@ function createMCPServer(): Server {
     imagePath: "string",
   });
 
-  server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
-    const pyodideManager = PyodideManager.getInstance();
-    const resourceClient = new ResourceClient(pyodideManager);
-    const resources = await resourceClient.listResources();
-    return { resources };
-  });
+  // server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
+  //   const pyodideManager = PyodideManager.getInstance();
+  //   const resourceClient = new ResourceClient(pyodideManager);
+  //   const resources = await resourceClient.listResources();
+  //   return { resources };
+  // });
 
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    const pyodideManager = PyodideManager.getInstance();
-    const resourceClient = new ResourceClient(pyodideManager);
-    const resource = await resourceClient.readResource(request.params.uri);
-    return { contents: [resource] };
-  });
+  // server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  //   const pyodideManager = PyodideManager.getInstance();
+  //   const resourceClient = new ResourceClient(pyodideManager);
+  //   const resource = await resourceClient.readResource(request.params.uri);
+  //   return { contents: [resource] };
+  // });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS,
@@ -89,12 +90,12 @@ function createMCPServer(): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const { name, arguments: args } = request.params;
+      const { sessionId } = args as { sessionId: string };
+      const pyodideManager = PyodideManager.getInstance(sessionId);
 
       if (!args) {
         throw new Error("No arguments provided");
       }
-
-      const pyodideManager = PyodideManager.getInstance();
 
       switch (name) {
         case "python_execute": {
@@ -102,29 +103,33 @@ function createMCPServer(): Server {
           if (executePythonArgs instanceof type.errors) {
             throw executePythonArgs;
           }
-          const { code, timeout = 5000 } = executePythonArgs;
-          // install required packages
-          await Promise.all(
-            extractPythonPackages(code).map((pkg) =>
-              pyodideManager.installPackage(pkg)
-            )
-          );
+          const { code, timeout = 5000, sessionId } = executePythonArgs;
+          // Don't allow to install packages. Only pre-installed packages are allowed.
+          // // install required packages
+          // await Promise.all(
+          //   extractPythonPackages(code).map((pkg) =>
+          //     pyodideManager.installPackage(pkg)
+          //   )
+          // );
           const results = await pyodideManager.executePython(code, timeout);
           return results;
         }
-        case "pyodide_install-packages": {
-          const installPythonPackagesArgs = isInstallPythonPackagesArgs(args);
-          if (installPythonPackagesArgs instanceof type.errors) {
-            throw installPythonPackagesArgs;
-          }
-          const { package: packageName } = installPythonPackagesArgs;
-          const results = await pyodideManager.installPackage(packageName);
-          return results;
-        }
+        // case "pyodide_install-packages": {
+        //   const installPythonPackagesArgs = isInstallPythonPackagesArgs(args);
+        //   if (installPythonPackagesArgs instanceof type.errors) {
+        //     throw installPythonPackagesArgs;
+        //   }
+        //   const { package: packageName } = installPythonPackagesArgs;
+        //   const results = await pyodideManager.installPackage(packageName);
+        //   return results;
+        // }
+
+        // NOTE: This case should only be called by trusted clients.
         case "pyodide_get-mount-points": {
           const results = await pyodideManager.getMountPoints();
           return results;
         }
+        // NOTE: This case should only be called by trusted clients.
         case "pyodide_list-mounted-directory": {
           const listMountedDirectoryArgs = isListMountedDirectoryArgs(args);
           if (listMountedDirectoryArgs instanceof type.errors) {
@@ -134,15 +139,15 @@ function createMCPServer(): Server {
           const results = await pyodideManager.listMountedDirectory(mountName);
           return results;
         }
-        case "pyodide_read-image": {
-          const readImageArgs = isReadImageArgs(args);
-          if (readImageArgs instanceof type.errors) {
-            throw readImageArgs;
-          }
-          const { mountName, imagePath } = readImageArgs;
-          const results = await pyodideManager.readImage(mountName, imagePath);
-          return results;
-        }
+        // case "pyodide_read-image": {
+        //   const readImageArgs = isReadImageArgs(args);
+        //   if (readImageArgs instanceof type.errors) {
+        //     throw readImageArgs;
+        //   }
+        //   const { mountName, imagePath } = readImageArgs;
+        //   const results = await pyodideManager.readImage(mountName, imagePath);
+        //   return results;
+        // }
         default: {
           return formatCallToolError(`Unknown tool: ${name}`);
         }
@@ -154,8 +159,8 @@ function createMCPServer(): Server {
   return server;
 }
 
-async function initializePyodide() {
-  const pyodideManager = PyodideManager.getInstance();
+async function initializePyodide(sessionId: string) {
+  const pyodideManager = PyodideManager.getInstance(sessionId);
   const cacheDir = process.env.PYODIDE_CACHE_DIR || "./cache";
   const dataDir = process.env.PYODIDE_DATA_DIR || "./data";
 

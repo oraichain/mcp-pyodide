@@ -9,12 +9,12 @@ global.logger = initLogger("Oraichain Pyiodide MCP Server");
 async function runServer() {
   const args = process.argv.slice(2);
   const useSSE = args.includes("--sse");
-  await initializePyodide();
-
+  
   if (useSSE) {
     await runSSEServer();
   } else {
     const server = createMCPServer();
+    await initializePyodide('local-stdio');
     const transport = new StdioServerTransport();
     await server.connect(transport);
     logger.error("Pyodide MCP Server running on stdio");

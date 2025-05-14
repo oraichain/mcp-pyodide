@@ -6,6 +6,10 @@ export const EXECUTE_PYTHON_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
+      sessionId: {
+        type: 'string',
+        description: 'User session ID'
+      },
       code: {
         type: 'string',
         description: 'Python code to execute'
@@ -15,7 +19,7 @@ export const EXECUTE_PYTHON_TOOL: Tool = {
         description: 'Execution timeout in milliseconds (default: 5000)'
       }
     },
-    required: ['code']
+    required: ['code', 'sessionId']
   }
 };
 
@@ -41,7 +45,13 @@ export const GET_MOUNT_POINTS_TOOL: Tool = {
   description: 'List mounted directories',
   inputSchema: {
     type: 'object',
-    properties: {}
+    properties: {
+      sessionId: {
+        type: 'string',
+        description: 'User session ID'
+      }
+    },
+    required: ['sessionId']
   }
 };
 
@@ -51,12 +61,16 @@ export const LIST_MOUNTED_DIRECTORY_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
+      sessionId: {
+        type: 'string',
+        description: 'User session ID'
+      },
       mountName: {
         type: 'string',
         description: 'Name of the mount point'
       }
     },
-    required: ['mountName']
+    required: ['sessionId', 'mountName']
   }
 };
 

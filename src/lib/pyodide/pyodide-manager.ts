@@ -1,9 +1,8 @@
-import { loadPyodide } from "pyodide";
+import { loadPyodide, PyodideInterface } from "pyodide";
 import * as path from "path";
 import * as fs from "fs";
 import * as https from "https";
 import * as http from "http";
-
 import { withOutputCapture } from "../../utils/output-capture.js";
 import {
   formatCallToolError,
@@ -12,55 +11,47 @@ import {
 } from "../../formatters/index.js";
 import { MIME_TYPES } from "../../lib/mime-types/index.js";
 
-import type { PyodideInterface } from "pyodide";
-
-// Basic mount point configuration
 interface MountConfig {
   hostPath: string;
   mountPoint: string;
 }
 
 interface ResourceInfo {
-  name: string; // File name
-  uri: string; // Full URI (file://....)
-  mimeType: string; // MIME type
+  name: string;
+  uri: string;
+  mimeType: string;
 }
 
-// Node.js環境でwheelファイルをダウンロードする
+// Mock logger (replace with actual implementation)
+const logger = {
+  info: console.log,
+  error: console.error,
+};
+
+// Download wheel files
 async function downloadWheel(url: string, destPath: string): Promise<string> {
-  // ディレクトリがなければ作成
   const dir = path.dirname(destPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith("https:") ? https : http;
     const file = fs.createWriteStream(destPath);
 
     const request = protocol.get(url, (response) => {
-      // リダイレクトの処理
       if (response.statusCode === 301 || response.statusCode === 302) {
         if (response.headers.location) {
           file.close();
-          fs.unlinkSync(destPath); // 作成した空ファイルを削除
-          downloadWheel(response.headers.location, destPath)
+          fs.unlinkSync(destPath);
+          return downloadWheel(response.headers.location, destPath)
             .then(resolve)
             .catch(reject);
-          return;
         }
       }
-
-      // エラーステータスの処理
       if (response.statusCode !== 200) {
-        reject(
-          new Error(`Failed to download: Status code ${response.statusCode}`)
-        );
+        reject(new Error(`Failed to download: Status ${response.statusCode}`));
         return;
       }
-
       response.pipe(file);
-
       file.on("finish", () => {
         file.close();
         resolve(path.resolve(destPath));
@@ -68,22 +59,20 @@ async function downloadWheel(url: string, destPath: string): Promise<string> {
     });
 
     request.on("error", (err) => {
-      fs.unlinkSync(destPath); // エラー時にファイルを削除
+      fs.unlinkSync(destPath);
       reject(err);
     });
-
     file.on("error", (err) => {
-      fs.unlinkSync(destPath); // エラー時にファイルを削除
+      fs.unlinkSync(destPath);
       reject(err);
     });
   });
 }
 
-// PyPIからwheelファイルのURLを取得する
+// Get wheel URL from PyPI
 async function getWheelUrl(packageName: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = `https://pypi.org/pypi/${packageName}/json`;
-
     https
       .get(url, (response) => {
         if (response.statusCode !== 200) {
@@ -92,29 +81,19 @@ async function getWheelUrl(packageName: string): Promise<string> {
           );
           return;
         }
-
         let data = "";
-        response.on("data", (chunk) => {
-          data += chunk;
-        });
-
+        response.on("data", (chunk) => (data += chunk));
         response.on("end", () => {
           try {
             const packageInfo = JSON.parse(data);
             const releases = packageInfo.releases[packageInfo.info.version];
-
-            // py3-none-any.whl形式のWheelファイルを検索
             const wheel = releases.find(
               (release: any) =>
                 release.packagetype === "bdist_wheel" &&
                 release.filename.includes("py3-none-any.whl")
             );
-
-            if (wheel) {
-              resolve(wheel.url);
-            } else {
-              reject(new Error(`No compatible wheel found for ${packageName}`));
-            }
+            if (wheel) resolve(wheel.url);
+            else reject(new Error(`No compatible wheel for ${packageName}`));
           } catch (error) {
             reject(error);
           }
@@ -125,17 +104,38 @@ async function getWheelUrl(packageName: string): Promise<string> {
 }
 
 class PyodideManager {
-  private static instance: PyodideManager | null = null;
+  private static instances: Map<string, PyodideManager> = new Map();
   private pyodide: PyodideInterface | null = null;
+  private sessionId: string;
   private mountPoints: Map<string, MountConfig> = new Map();
+  private preInstalledPackages: string[] = [
+    "numpy",
+    "scipy",
+    "sympy",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "os",
+    "pathlib",
+    "pandas",
+    "markdown",
+    "mistune",
+    "PyPDF2",
+    "reportlab",
+  ];
 
-  private constructor() {}
+  private constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
 
-  static getInstance(): PyodideManager {
-    if (!PyodideManager.instance) {
-      PyodideManager.instance = new PyodideManager();
-    }
-    return PyodideManager.instance;
+  static getInstance(sessionId: string): PyodideManager {
+    if (!PyodideManager.instances.has(sessionId))
+      PyodideManager.instances.set(sessionId, new PyodideManager(sessionId));
+    return PyodideManager.instances.get(sessionId)!;
+  }
+
+  static setInstance(sessionId: string, instance: PyodideManager) {
+    PyodideManager.instances.set(sessionId, instance);
   }
 
   async initialize(packageCacheDir: string): Promise<boolean> {
@@ -143,12 +143,8 @@ class PyodideManager {
       logger.error("Initializing Pyodide...");
       this.pyodide = await loadPyodide({
         packageCacheDir,
-        stdout: (text: string) => {
-          // logger.info("[Python stdout]:", text);
-        },
-        stderr: (text: string) => {
-          // logger.error("[Python stderr]:", text);
-        },
+        stdout: () => {},
+        stderr: () => {},
         jsglobals: {
           clearInterval,
           clearTimeout,
@@ -188,9 +184,43 @@ class PyodideManager {
               appendChild: () => {},
             },
           },
+          fetch: () => Promise.reject(new Error("Network access disabled")),
+          XMLHttpRequest: function () {
+            throw new Error("Network access disabled");
+          },
         },
       });
-      logger.error("Pyodide initialized successfully");
+      this.pyodide.globals.set("js", undefined);
+
+      // Pre-install packages
+      logger.info("Pre-installing packages...");
+      await this.installPackage(this.preInstalledPackages.join(" "));
+      logger.info("Packages pre-installed");
+
+      // Disable package installation
+      this.installPackage = async () => {
+        throw new Error("Package installation disabled");
+      };
+      await this.pyodide.runPythonAsync(`
+        import sys
+        sys.modules['micropip'] = None
+        original_import = __import__
+        def restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == 'micropip':
+                raise ImportError("Package installation disabled")
+            return original_import(name, globals, locals, fromlist, level)
+        __builtins__.__import__ = restricted_import
+        import urllib.request
+        def blocked_opener(*args, **kwargs):
+            raise RuntimeError("Network access disabled")
+        urllib.request.urlopen = blocked_opener
+      `);
+
+      // // Restrict /tmp
+      this.pyodide.FS.mkdirTree("/tmp");
+      // this.pyodide.FS.chmod("/tmp", 0o555);
+
+      logger.info("Pyodide initialized");
       return true;
     } catch (error) {
       logger.error("Failed to initialize Pyodide:", error);
@@ -202,47 +232,43 @@ class PyodideManager {
     return this.pyodide;
   }
 
-  // Mount filesystem directories
   async mountDirectory(name: string, hostPath: string): Promise<boolean> {
     if (!this.pyodide) return false;
-
     try {
-      const absolutePath = path.resolve(hostPath);
-
-      // Create directory if it doesn't exist
-      if (!fs.existsSync(absolutePath)) {
-        fs.mkdirSync(absolutePath, { recursive: true });
-        logger.error(`Created directory: ${absolutePath}`);
+      const absolutePathWithSessionId = path.resolve(
+        `${hostPath}/${this.sessionId}`
+      );
+      if (
+        absolutePathWithSessionId.startsWith("/etc") ||
+        absolutePathWithSessionId.startsWith("/root") ||
+        absolutePathWithSessionId.includes("..")
+      ) {
+        throw new Error("Mounting restricted paths not allowed");
       }
-
-      const mountPoint = `/mnt/${name}`;
+      if (!fs.existsSync(absolutePathWithSessionId)) {
+        fs.mkdirSync(absolutePathWithSessionId, { recursive: true });
+      }
+      const nameWithSessionId = `${this.sessionId}/${name}`;
+      const mountPoint = `/mnt/${nameWithSessionId}`;
       this.pyodide.FS.mkdirTree(mountPoint);
       this.pyodide.FS.mount(
         this.pyodide.FS.filesystems.NODEFS,
-        {
-          root: absolutePath,
-        },
+        { root: absolutePathWithSessionId, readOnly: true },
         mountPoint
       );
-
-      this.mountPoints.set(name, {
-        hostPath: absolutePath,
+      this.mountPoints.set(nameWithSessionId, {
+        hostPath: absolutePathWithSessionId,
         mountPoint,
       });
-
       return true;
     } catch (error) {
-      logger.error(`Failed to mount directory ${hostPath}:`, error);
+      logger.error(`Failed to mount ${hostPath}:`, error);
       return false;
     }
   }
 
-  // Get information about all mount points
   async getMountPoints() {
-    if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
-    }
-
+    if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
     try {
       const mountPoints = Array.from(this.mountPoints.entries()).map(
         ([name, config]) => ({
@@ -257,22 +283,14 @@ class PyodideManager {
     }
   }
 
-  // List contents of a mounted directory
   async listMountedDirectory(mountName: string) {
-    if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
-    }
-
+    if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
     const mountConfig = this.mountPoints.get(mountName);
-    if (!mountConfig) {
+    if (!mountConfig)
       return formatCallToolError(`Mount point not found: ${mountName}`);
-    }
-
     try {
-      // Use Python code to get directory contents
       const pythonCode = `
 import os
-
 def list_directory(path):
     contents = []
     try:
@@ -286,7 +304,6 @@ def list_directory(path):
         print(f"Error listing directory: {e}")
         return []
     return contents
-
 list_directory("${mountConfig.mountPoint}")
 `;
 
@@ -296,73 +313,40 @@ list_directory("${mountConfig.mountPoint}")
     }
   }
 
-  /**
-   * Get mount name from file path
-   * @param filePath Full path to check
-   * @returns Mount name if found, null if not matched
-   */
   getMountNameFromPath(filePath: string): string | null {
     if (!filePath) return null;
-
-    // Normalize path separators
     const normalizedPath = filePath.replace(/\\/g, "/");
-
     let longestMatch = "";
     let matchedMountName: string | null = null;
-
-    // Check each mount point
     for (const [mountName, config] of this.mountPoints.entries()) {
       const normalizedHostPath = config.hostPath.replace(/\\/g, "/");
-
-      // Check if path starts with this mount point
-      if (normalizedPath.startsWith(normalizedHostPath)) {
-        // Keep track of the longest matching path
-        if (normalizedHostPath.length > longestMatch.length) {
-          longestMatch = normalizedHostPath;
-          matchedMountName = mountName;
-        }
+      if (
+        normalizedPath.startsWith(normalizedHostPath) &&
+        normalizedHostPath.length > longestMatch.length
+      ) {
+        longestMatch = normalizedHostPath;
+        matchedMountName = mountName;
       }
     }
-
     return matchedMountName;
   }
 
-  /**
-   * Get mount point information from a file URI
-   * @param uri File URI (e.g., "file:///mnt/data/file.txt")
-   * @returns MountPathInfo object or null if not found
-   */
   getMountPointInfo(uri: string) {
-    // Remove "file://" prefix
     let filePath = uri.replace("file://", "");
-
-    // Find matching mount point
     for (const [mountName, config] of this.mountPoints.entries()) {
       const mountPoint = config.mountPoint;
-
-      // Check if path starts with this mount point
       if (filePath.startsWith(mountPoint)) {
-        // Get relative path by removing mount point prefix
         const relativePath = filePath
           .slice(mountPoint.length)
-          .replace(/^[/\\]+/, ""); // Remove leading slashes
-
-        return {
-          mountName,
-          mountPoint,
-          relativePath,
-        };
+          .replace(/^[/\\]+/, "");
+        return { mountName, mountPoint, relativePath };
       }
     }
-
     return null;
   }
 
-  async executePython(code: string, timeout: number) {
-    if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
-    }
-
+  async executePython(code: string, timeout: number = 5000) {
+    if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
     try {
       const { result, output } = await withOutputCapture(
         this.pyodide,
@@ -373,16 +357,12 @@ list_directory("${mountConfig.mountPoint}")
               setTimeout(() => reject(new Error("Execution timeout")), timeout)
             ),
           ]);
-
-          // Memory cleanup
           this.pyodide!.globals.clear();
           await this.pyodide!.runPythonAsync("import gc; gc.collect()");
-
           return executionResult;
         },
         { suppressConsole: true }
       );
-
       return formatCallToolSuccess(
         output
           ? `Output:\n${output}\nResult:\n${String(result)}`
@@ -394,123 +374,57 @@ list_directory("${mountConfig.mountPoint}")
   }
 
   async installPackage(packageName: string) {
-    if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
-    }
-
+    if (!this.pyodide) throw new Error("Pyodide not initialized");
     try {
-      // パッケージ名をスペースで分割
       const packages = packageName
         .split(" ")
         .map((pkg) => pkg.trim())
         .filter(Boolean);
-
-      if (packages.length === 0) {
-        return formatCallToolError("No valid package names specified");
-      }
-
-      // 出力メッセージを集める
+      if (!packages.length) throw new Error("No valid package names");
       const outputs: string[] = [];
-
-      // 各パッケージを処理
       for (const pkg of packages) {
         try {
-          // 1. まずpyodide.loadPackageでインストールを試みる
-          outputs.push(`Attempting to install ${pkg} using loadPackage...`);
-
-          try {
-            await this.pyodide.loadPackage(pkg, {
-              messageCallback: (msg) => {
-                outputs.push(`loadPackage: ${msg}`);
-              },
-              errorCallback: (err) => {
-                throw new Error(err);
-              },
-            });
-            outputs.push(`Successfully installed ${pkg} using loadPackage.`);
-            continue; // このパッケージは成功したので次のパッケージへ
-          } catch (loadPackageError) {
-            outputs.push(
-              `loadPackage failed for ${pkg}: ${
-                loadPackageError instanceof Error
-                  ? loadPackageError.message
-                  : String(loadPackageError)
-              }`
-            );
-            outputs.push(`Falling back to micropip for ${pkg}...`);
-
-            // loadPackageが失敗した場合は、micropipを使用する
-            // micropipがまだロードされていない場合はロードする
-            try {
-              // micropipをロードする
-              await this.pyodide.loadPackage("micropip", {
-                messageCallback: (msg) => {
-                  outputs.push(`loadPackage: ${msg}`);
-                },
-                errorCallback: (err) => {
-                  throw new Error(err);
-                },
-              });
-            } catch (micropipLoadError) {
-              throw new Error(
-                `Failed to load micropip: ${
-                  micropipLoadError instanceof Error
-                    ? micropipLoadError.message
-                    : String(micropipLoadError)
-                }`
-              );
-            }
-
-            // 2. micropipを使ったインストール処理
-            // 一時ディレクトリを作成
-            const tempDir = process.env.PYODIDE_CACHE_DIR || "./cache";
-            if (!fs.existsSync(tempDir)) {
-              fs.mkdirSync(tempDir, { recursive: true });
-            }
-
-            // Pyodide内のtempディレクトリを作成
-            this.pyodide.FS.mkdirTree("/tmp/wheels");
-
-            // PyPIからwheelのURLを取得
-            const wheelUrl = await getWheelUrl(pkg);
-            const wheelFilename = path.basename(wheelUrl);
-            const localWheelPath = path.join(tempDir, wheelFilename);
-
-            // wheelをダウンロード
-            outputs.push(`Downloading wheel for ${pkg}...`);
-            await downloadWheel(wheelUrl, localWheelPath);
-
-            // wheelをPyodideのファイルシステムにコピー
-            const wheelData = fs.readFileSync(localWheelPath);
-            const pyodideWheelPath = `/tmp/wheels/${wheelFilename}`;
-            this.pyodide.FS.writeFile(pyodideWheelPath, wheelData);
-
-            // micropipでインストール
-            const { output } = await withOutputCapture(
-              this.pyodide,
-              async () => {
-                await this.pyodide!.runPythonAsync(`
-                  import micropip
-                  await micropip.install("emfs:${pyodideWheelPath}")
-                `);
-              },
-              { suppressConsole: true }
-            );
-
-            outputs.push(
-              `Successfully installed ${pkg} using micropip: ${output}`
-            );
-          }
-        } catch (error) {
-          // 個別のパッケージのエラーを記録して続行
+          outputs.push(`Installing ${pkg} using loadPackage...`);
+          await this.pyodide.loadPackage(pkg, {
+            messageCallback: (msg) => outputs.push(`loadPackage: ${msg}`),
+            errorCallback: (err) => {
+              throw new Error(err);
+            },
+          });
+          outputs.push(`Installed ${pkg} using loadPackage`);
+          continue;
+        } catch (loadPackageError) {
           outputs.push(
-            `Failed to install ${pkg}: ${
-              error instanceof Error ? error.message : String(error)
-            }`
+            `loadPackage failed for ${pkg}: ${String(loadPackageError)}`
           );
+          outputs.push(`Falling back to micropip...`);
+          const tempDir = process.env.PYODIDE_CACHE_DIR || "./cache";
+          if (!fs.existsSync(tempDir))
+            fs.mkdirSync(tempDir, { recursive: true });
+
+          this.pyodide.FS.mkdirTree("/tmp/wheels");
+
+          const wheelUrl = await getWheelUrl(pkg);
+          const wheelFilename = path.basename(wheelUrl);
+          const localWheelPath = path.join(tempDir, wheelFilename);
+          outputs.push(`Downloading wheel for ${pkg}...`);
+          await downloadWheel(wheelUrl, localWheelPath);
+          const wheelData = fs.readFileSync(localWheelPath);
+          const pyodideWheelPath = `/tmp/wheels/${wheelFilename}`;
+          this.pyodide.FS.writeFile(pyodideWheelPath, wheelData);
+          const { output } = await withOutputCapture(
+            this.pyodide,
+            async () => {
+              await this.pyodide!.runPythonAsync(`
+                import micropip
+                await micropip.install("emfs:${pyodideWheelPath}")
+              `);
+            },
+            { suppressConsole: true }
+          );
+          outputs.push(`Installed ${pkg} using micropip: ${output}`);
         }
       }
-
       return formatCallToolSuccess(outputs.join("\n\n"));
     } catch (error) {
       return formatCallToolError(error);
@@ -520,118 +434,70 @@ list_directory("${mountConfig.mountPoint}")
   async readResource(
     mountName: string,
     resourcePath: string
-  ): Promise<
-    | {
-        blob: string;
-        mimeType: string;
-      }
-    | { error: string }
-  > {
-    if (!this.pyodide) {
-      return { error: "Pyodide not initialized" };
-    }
-
+  ): Promise<{ blob: string; mimeType: string } | { error: string }> {
+    if (!this.pyodide) return { error: "Pyodide not initialized" };
     const mountConfig = this.mountPoints.get(mountName);
-    if (!mountConfig) {
-      return { error: `Mount point not found: ${mountName}` };
-    }
-
+    if (!mountConfig) return { error: `Mount point not found: ${mountName}` };
     try {
-      // Get full path to the image
       const fullPath = path.join(mountConfig.hostPath, resourcePath);
-      if (!fs.existsSync(fullPath)) {
-        return { error: `Image file not found: ${fullPath}` };
-      }
-
-      // Get MIME type from file extension
+      if (!fs.existsSync(fullPath))
+        return { error: `File not found: ${fullPath}` };
       const ext = path.extname(fullPath).toLowerCase();
       const mimeType = MIME_TYPES[ext];
-      if (!mimeType) {
-        return { error: `Unsupported image format: ${ext}` };
-      }
-
-      // Read and encode image
+      if (!mimeType) return { error: `Unsupported format: ${ext}` };
       const imageBuffer = await fs.promises.readFile(fullPath);
       const base64Data = imageBuffer.toString("base64");
-
       return { blob: base64Data, mimeType };
     } catch (error) {
       return { error: String(error) };
     }
   }
 
-  /**
-   * List all files matching the given MIME types across all mount points
-   * @param mimeTypes Array of MIME types to match (e.g., ['image/jpeg', 'image/png'])
-   * @returns Array of ResourceInfo objects
-   */
   async listResources(): Promise<ResourceInfo[]> {
     const resources: ResourceInfo[] = [];
     const validMimeTypes = new Set(Object.values(MIME_TYPES));
-
     const isMatchingMimeType = (filePath: string): string | null => {
       const ext = path.extname(filePath).toLowerCase();
       const mimeType = MIME_TYPES[ext];
       return mimeType && validMimeTypes.has(mimeType) ? mimeType : null;
     };
-
     const scanDirectory = (dirPath: string): void => {
       try {
         const items = fs.readdirSync(dirPath);
         const mountName = this.getMountNameFromPath(dirPath);
         if (!mountName) return;
-
         const config = this.mountPoints.get(mountName);
         if (!config) return;
-
         const { hostPath, mountPoint } = config;
-
         for (const item of items) {
           const fullPath = path.join(dirPath, item);
           const stat = fs.statSync(fullPath);
-
           if (stat.isDirectory()) {
-            // Recursively scan subdirectories
             scanDirectory(fullPath);
           } else if (stat.isFile()) {
-            // Check if file matches MIME type
             const mimeType = isMatchingMimeType(item);
             if (mimeType) {
-              // Calculate relative path from hostPath
               const relativePath = path.relative(hostPath, fullPath);
-              // Construct URI with full path
               const uri = `file://${path.join(mountPoint, relativePath)}`;
-
-              resources.push({
-                name: item,
-                uri,
-                mimeType,
-              });
+              resources.push({ name: item, uri, mimeType });
             }
           }
         }
       } catch (error) {
-        logger.error(`Error scanning directory ${dirPath}:`, error);
+        logger.error(`Error scanning ${dirPath}:`, error);
       }
     };
-
-    // Scan all mount points
     for (const [_, config] of this.mountPoints.entries()) {
       scanDirectory(config.hostPath);
     }
-
     return resources;
   }
 
   async readImage(mountName: string, imagePath: string) {
-    if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
-    }
+    if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
     try {
       const resource = await this.readResource(mountName, imagePath);
-      if ("error" in resource) {
-        return formatCallToolError(resource.error);
-      }
+      if ("error" in resource) return formatCallToolError(resource.error);
       const content = contentFormatters.formatImage(
         resource.blob,
         resource.mimeType
