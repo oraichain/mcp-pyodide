@@ -7,22 +7,15 @@ await pyodideManager.initialize('./cache');
 await pyodideManager.mountDirectory('data', `data`);
 pyodideManager.getPyodide().FS.chdir('/mnt/data');
 
-// Function to extract Python packages from a Python script
-function extractPythonPackages(pythonCode) {
-  const regex = /^\s*(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gm;
-  let match;
-  const packages = new Set();
-
-  while ((match = regex.exec(pythonCode)) !== null) {
-    packages.add(match[1]);
-  }
-  return Array.from(packages);
-}
+// Regex to extract Python packages from a Python script
+const regex = /^\s*(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gm;
+let match;
 
 // run code
 if (workerData.cmd === 'runCode') {
-  const packages = extractPythonPackages(workerData.code);
-  await Promise.all(packages.map((pkg) => pyodideManager.installPackage(pkg)));
+  while ((match = regex.exec(workerData.code)) !== null) {
+    await pyodideManager.installPackage(match[1]);
+  }
   const response = await pyodideManager.executePython(workerData.code);
   parentPort.postMessage({ cmd: 'response', result: response });
 }
