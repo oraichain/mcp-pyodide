@@ -1,18 +1,18 @@
-import { loadPyodide } from "pyodide";
-import * as path from "path";
-import * as fs from "fs";
-import * as https from "https";
-import * as http from "http";
+import { loadPyodide } from 'pyodide';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as https from 'https';
+import * as http from 'http';
 
-import { withOutputCapture } from "../../utils/output-capture.js";
+import { withOutputCapture } from '../../utils/output-capture.js';
 import {
   formatCallToolError,
   formatCallToolSuccess,
-  contentFormatters,
-} from "../../formatters/index.js";
-import { MIME_TYPES } from "../../lib/mime-types/index.js";
+  contentFormatters
+} from '../../formatters/index.js';
+import { MIME_TYPES } from '../../lib/mime-types/index.js';
 
-import type { PyodideInterface } from "pyodide";
+import type { PyodideInterface } from 'pyodide';
 
 // Basic mount point configuration
 interface MountConfig {
@@ -35,7 +35,7 @@ async function downloadWheel(url: string, destPath: string): Promise<string> {
   }
 
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith("https:") ? https : http;
+    const protocol = url.startsWith('https:') ? https : http;
     const file = fs.createWriteStream(destPath);
 
     const request = protocol.get(url, (response) => {
@@ -61,18 +61,18 @@ async function downloadWheel(url: string, destPath: string): Promise<string> {
 
       response.pipe(file);
 
-      file.on("finish", () => {
+      file.on('finish', () => {
         file.close();
         resolve(path.resolve(destPath));
       });
     });
 
-    request.on("error", (err) => {
+    request.on('error', (err) => {
       fs.unlinkSync(destPath); // エラー時にファイルを削除
       reject(err);
     });
 
-    file.on("error", (err) => {
+    file.on('error', (err) => {
       fs.unlinkSync(destPath); // エラー時にファイルを削除
       reject(err);
     });
@@ -93,12 +93,12 @@ async function getWheelUrl(packageName: string): Promise<string> {
           return;
         }
 
-        let data = "";
-        response.on("data", (chunk) => {
+        let data = '';
+        response.on('data', (chunk) => {
           data += chunk;
         });
 
-        response.on("end", () => {
+        response.on('end', () => {
           try {
             const packageInfo = JSON.parse(data);
             const releases = packageInfo.releases[packageInfo.info.version];
@@ -106,8 +106,8 @@ async function getWheelUrl(packageName: string): Promise<string> {
             // py3-none-any.whl形式のWheelファイルを検索
             const wheel = releases.find(
               (release: any) =>
-                release.packagetype === "bdist_wheel" &&
-                release.filename.includes("py3-none-any.whl")
+                release.packagetype === 'bdist_wheel' &&
+                release.filename.includes('py3-none-any.whl')
             );
 
             if (wheel) {
@@ -120,7 +120,7 @@ async function getWheelUrl(packageName: string): Promise<string> {
           }
         });
       })
-      .on("error", reject);
+      .on('error', reject);
   });
 }
 
@@ -140,7 +140,7 @@ class PyodideManager {
 
   async initialize(packageCacheDir: string): Promise<boolean> {
     try {
-      console.error("Initializing Pyodide...");
+      console.error('Initializing Pyodide...');
       this.pyodide = await loadPyodide({
         packageCacheDir,
         stdout: (text: string) => {
@@ -157,7 +157,7 @@ class PyodideManager {
           ImageData: {},
           document: {
             getElementById: (id: any) => {
-              if (id.includes("canvas")) return null;
+              if (id.includes('canvas')) return null;
               else
                 return {
                   addEventListener: () => {},
@@ -165,7 +165,7 @@ class PyodideManager {
                   classList: { add: () => {}, remove: () => {} },
                   setAttribute: () => {},
                   appendChild: () => {},
-                  remove: () => {},
+                  remove: () => {}
                 };
             },
             createElement: () => ({
@@ -174,7 +174,7 @@ class PyodideManager {
               classList: { add: () => {}, remove: () => {} },
               setAttribute: () => {},
               appendChild: () => {},
-              remove: () => {},
+              remove: () => {}
             }),
             createTextNode: () => ({
               addEventListener: () => {},
@@ -182,18 +182,18 @@ class PyodideManager {
               classList: { add: () => {}, remove: () => {} },
               setAttribute: () => {},
               appendChild: () => {},
-              remove: () => {},
+              remove: () => {}
             }),
             body: {
-              appendChild: () => {},
-            },
-          },
-        },
+              appendChild: () => {}
+            }
+          }
+        }
       });
-      console.error("Pyodide initialized successfully");
+      console.error('Pyodide initialized successfully');
       return true;
     } catch (error) {
-      console.error("Failed to initialize Pyodide:", error);
+      console.error('Failed to initialize Pyodide:', error);
       return false;
     }
   }
@@ -220,14 +220,14 @@ class PyodideManager {
       this.pyodide.FS.mount(
         this.pyodide.FS.filesystems.NODEFS,
         {
-          root: absolutePath,
+          root: absolutePath
         },
         mountPoint
       );
 
       this.mountPoints.set(name, {
         hostPath: absolutePath,
-        mountPoint,
+        mountPoint
       });
 
       return true;
@@ -240,7 +240,7 @@ class PyodideManager {
   // Get information about all mount points
   async getMountPoints() {
     if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
+      return formatCallToolError('Pyodide not initialized');
     }
 
     try {
@@ -248,7 +248,7 @@ class PyodideManager {
         ([name, config]) => ({
           name,
           hostPath: config.hostPath,
-          mountPoint: config.mountPoint,
+          mountPoint: config.mountPoint
         })
       );
       return formatCallToolSuccess(JSON.stringify(mountPoints, null, 2));
@@ -260,7 +260,7 @@ class PyodideManager {
   // List contents of a mounted directory
   async listMountedDirectory(mountName: string) {
     if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
+      return formatCallToolError('Pyodide not initialized');
     }
 
     const mountConfig = this.mountPoints.get(mountName);
@@ -305,14 +305,14 @@ list_directory("${mountConfig.mountPoint}")
     if (!filePath) return null;
 
     // Normalize path separators
-    const normalizedPath = filePath.replace(/\\/g, "/");
+    const normalizedPath = filePath.replace(/\\/g, '/');
 
-    let longestMatch = "";
+    let longestMatch = '';
     let matchedMountName: string | null = null;
 
     // Check each mount point
     for (const [mountName, config] of this.mountPoints.entries()) {
-      const normalizedHostPath = config.hostPath.replace(/\\/g, "/");
+      const normalizedHostPath = config.hostPath.replace(/\\/g, '/');
 
       // Check if path starts with this mount point
       if (normalizedPath.startsWith(normalizedHostPath)) {
@@ -334,7 +334,7 @@ list_directory("${mountConfig.mountPoint}")
    */
   getMountPointInfo(uri: string) {
     // Remove "file://" prefix
-    let filePath = uri.replace("file://", "");
+    let filePath = uri.replace('file://', '');
 
     // Find matching mount point
     for (const [mountName, config] of this.mountPoints.entries()) {
@@ -345,12 +345,12 @@ list_directory("${mountConfig.mountPoint}")
         // Get relative path by removing mount point prefix
         const relativePath = filePath
           .slice(mountPoint.length)
-          .replace(/^[/\\]+/, ""); // Remove leading slashes
+          .replace(/^[/\\]+/, ''); // Remove leading slashes
 
         return {
           mountName,
           mountPoint,
-          relativePath,
+          relativePath
         };
       }
     }
@@ -360,23 +360,17 @@ list_directory("${mountConfig.mountPoint}")
 
   async executePython(code: string, timeout: number) {
     if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
+      return formatCallToolError('Pyodide not initialized');
     }
 
     try {
       const { result, output } = await withOutputCapture(
         this.pyodide,
         async () => {
-          const executionResult = await Promise.race([
-            this.pyodide!.runPythonAsync(code),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Execution timeout")), timeout)
-            ),
-          ]);
-
+          const executionResult = await this.pyodide!.runPythonAsync(code);
           // Memory cleanup
           this.pyodide!.globals.clear();
-          await this.pyodide!.runPythonAsync("import gc; gc.collect()");
+          await this.pyodide!.runPythonAsync('import gc; gc.collect()');
 
           return executionResult;
         },
@@ -395,18 +389,18 @@ list_directory("${mountConfig.mountPoint}")
 
   async installPackage(packageName: string) {
     if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
+      return formatCallToolError('Pyodide not initialized');
     }
 
     try {
       // パッケージ名をスペースで分割
       const packages = packageName
-        .split(" ")
+        .split(' ')
         .map((pkg) => pkg.trim())
         .filter(Boolean);
 
       if (packages.length === 0) {
-        return formatCallToolError("No valid package names specified");
+        return formatCallToolError('No valid package names specified');
       }
 
       // 出力メッセージを集める
@@ -425,7 +419,7 @@ list_directory("${mountConfig.mountPoint}")
               },
               errorCallback: (err) => {
                 throw new Error(err);
-              },
+              }
             });
             outputs.push(`Successfully installed ${pkg} using loadPackage.`);
             continue; // このパッケージは成功したので次のパッケージへ
@@ -443,13 +437,13 @@ list_directory("${mountConfig.mountPoint}")
             // micropipがまだロードされていない場合はロードする
             try {
               // micropipをロードする
-              await this.pyodide.loadPackage("micropip", {
+              await this.pyodide.loadPackage('micropip', {
                 messageCallback: (msg) => {
                   outputs.push(`loadPackage: ${msg}`);
                 },
                 errorCallback: (err) => {
                   throw new Error(err);
-                },
+                }
               });
             } catch (micropipLoadError) {
               throw new Error(
@@ -463,13 +457,13 @@ list_directory("${mountConfig.mountPoint}")
 
             // 2. micropipを使ったインストール処理
             // 一時ディレクトリを作成
-            const tempDir = process.env.PYODIDE_CACHE_DIR || "./cache";
+            const tempDir = process.env.PYODIDE_CACHE_DIR || './cache';
             if (!fs.existsSync(tempDir)) {
               fs.mkdirSync(tempDir, { recursive: true });
             }
 
             // Pyodide内のtempディレクトリを作成
-            this.pyodide.FS.mkdirTree("/tmp/wheels");
+            this.pyodide.FS.mkdirTree('/tmp/wheels');
 
             // PyPIからwheelのURLを取得
             const wheelUrl = await getWheelUrl(pkg);
@@ -511,7 +505,7 @@ list_directory("${mountConfig.mountPoint}")
         }
       }
 
-      return formatCallToolSuccess(outputs.join("\n\n"));
+      return formatCallToolSuccess(outputs.join('\n\n'));
     } catch (error) {
       return formatCallToolError(error);
     }
@@ -528,7 +522,7 @@ list_directory("${mountConfig.mountPoint}")
     | { error: string }
   > {
     if (!this.pyodide) {
-      return { error: "Pyodide not initialized" };
+      return { error: 'Pyodide not initialized' };
     }
 
     const mountConfig = this.mountPoints.get(mountName);
@@ -552,7 +546,7 @@ list_directory("${mountConfig.mountPoint}")
 
       // Read and encode image
       const imageBuffer = await fs.promises.readFile(fullPath);
-      const base64Data = imageBuffer.toString("base64");
+      const base64Data = imageBuffer.toString('base64');
 
       return { blob: base64Data, mimeType };
     } catch (error) {
@@ -605,7 +599,7 @@ list_directory("${mountConfig.mountPoint}")
               resources.push({
                 name: item,
                 uri,
-                mimeType,
+                mimeType
               });
             }
           }
@@ -625,11 +619,11 @@ list_directory("${mountConfig.mountPoint}")
 
   async readImage(mountName: string, imagePath: string) {
     if (!this.pyodide) {
-      return formatCallToolError("Pyodide not initialized");
+      return formatCallToolError('Pyodide not initialized');
     }
     try {
       const resource = await this.readResource(mountName, imagePath);
-      if ("error" in resource) {
+      if ('error' in resource) {
         return formatCallToolError(resource.error);
       }
       const content = contentFormatters.formatImage(

@@ -43,9 +43,9 @@ const server = new Server(
 );
 
 const TOOLS: Tool[] = [
-  tools.EXECUTE_PYTHON_TOOL,
+  tools.EXECUTE_PYTHON_TOOL
   // tools.INSTALL_PYTHON_PACKAGES_TOOL,
-  tools.GET_MOUNT_POINTS_TOOL
+  // tools.GET_MOUNT_POINTS_TOOL
   // tools.LIST_MOUNTED_DIRECTORY_TOOL
   // tools.READ_IMAGE_TOOL,
 ];
@@ -104,10 +104,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const { code, timeout = 5000 } = executePythonArgs;
         // install required packages
+        const packages = extractPythonPackages(code);
+        console.log({ code, packages });
         await Promise.all(
-          extractPythonPackages(code).map((pkg) =>
-            pyodideManager.installPackage(pkg)
-          )
+          packages.map((pkg) => pyodideManager.installPackage(pkg))
         );
         const results = await pyodideManager.executePython(code, timeout);
         return results;
@@ -162,6 +162,7 @@ async function initializePyodide() {
   }
 
   await pyodideManager.mountDirectory('data', dataDir);
+  pyodideManager.getPyodide()?.FS.chdir(`/mnt/data`);
 }
 
 async function runServer() {
