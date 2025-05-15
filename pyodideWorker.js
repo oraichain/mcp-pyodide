@@ -2,7 +2,11 @@ import { workerData, parentPort } from 'worker_threads';
 import { PyodideManager } from './build/lib/pyodide/pyodide-manager.js';
 
 const pyodideManager = PyodideManager.getInstance();
-let pyodide = null;
+// first time init
+await pyodideManager.initialize('./cache');
+await pyodideManager.mountDirectory('data', `data`);
+const pyodide = pyodideManager.getPyodide();
+pyodide.FS.chdir('/mnt/data');
 
 // Function to extract Python packages from a Python script
 function extractPythonPackages(pythonCode) {
@@ -13,16 +17,7 @@ function extractPythonPackages(pythonCode) {
   while ((match = regex.exec(pythonCode)) !== null) {
     packages.add(match[1]);
   }
-
   return Array.from(packages);
-}
-
-// first time init
-if (!pyodide) {
-  await pyodideManager.initialize('./cache');
-  await pyodideManager.mountDirectory('data', `data`);
-  pyodide = pyodideManager.getPyodide();
-  pyodide.FS.chdir('/mnt/data');
 }
 
 // run code

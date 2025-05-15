@@ -26,7 +26,6 @@ async function runCode(code: string, timeout: number = 10000) {
 (async () => {
   const ret = await runCode(
     `
-while True:    
     print("hello world")    
     `,
     10000
