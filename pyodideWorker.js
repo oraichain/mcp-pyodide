@@ -5,8 +5,7 @@ const pyodideManager = PyodideManager.getInstance();
 // first time init
 await pyodideManager.initialize('./cache');
 await pyodideManager.mountDirectory('data', `data`);
-const pyodide = pyodideManager.getPyodide();
-pyodide.FS.chdir('/mnt/data');
+pyodideManager.getPyodide().FS.chdir('/mnt/data');
 
 // Function to extract Python packages from a Python script
 function extractPythonPackages(pythonCode) {
