@@ -1,5 +1,4 @@
-import path from 'path';
-import { Worker, isMainThread, parentPort } from 'worker_threads';
+import { Worker } from 'worker_threads';
 
 async function runCode(code: string, timeout: number = 10000) {
   const worker = new Worker('./pyodideWorker.js', {
