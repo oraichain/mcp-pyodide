@@ -38,4 +38,9 @@ plt.savefig('/mnt/local-testing/data/chart.png')
   await pyodideManager.initialize("./cache");
   await pyodideManager.mountDirectory("data", `data`);
   await pyodideManager.executePython(scriptContent, 10000);
+  const result = await pyodideManager.executePython(
+    `while True: pass`,
+    2000
+  );
+  console.log(result);
 })();

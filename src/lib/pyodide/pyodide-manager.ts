@@ -203,17 +203,20 @@ class PyodideManager {
       };
       await this.pyodide.runPythonAsync(`
         import sys
+        import socket
         sys.modules['micropip'] = None
-        original_import = __import__
-        def restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == 'micropip':
-                raise ImportError("Package installation disabled")
-            return original_import(name, globals, locals, fromlist, level)
-        __builtins__.__import__ = restricted_import
         import urllib.request
+
         def blocked_opener(*args, **kwargs):
-            raise RuntimeError("Network access disabled")
+          raise RuntimeError("Network access disabled")
         urllib.request.urlopen = blocked_opener
+
+        # Block socket operations
+        def blocked_socket_op(*args, **kwargs):
+            raise RuntimeError("Network access disabled")
+        socket.create_connection = blocked_socket_op
+        socket.socket = blocked_socket_op  # Block socket creation
+        socket.gethostbyname = blocked_socket_op  # Block DNS resolution
       `);
 
       // // Restrict /tmp
@@ -238,11 +241,8 @@ class PyodideManager {
       const absolutePathWithSessionId = path.resolve(
         `${hostPath}/${this.sessionId}`
       );
-      if (
-        absolutePathWithSessionId.startsWith("/etc") ||
-        absolutePathWithSessionId.startsWith("/root") ||
-        absolutePathWithSessionId.includes("..")
-      ) {
+      const regexCheck = /^\/etc|\/root|\.\.\/?/;
+      if (regexCheck.test(absolutePathWithSessionId) || regexCheck.test(hostPath)) {
         throw new Error("Mounting restricted paths not allowed");
       }
       if (!fs.existsSync(absolutePathWithSessionId)) {
@@ -262,7 +262,6 @@ class PyodideManager {
       });
       return true;
     } catch (error) {
-      logger.error(`Failed to mount ${hostPath}:`, error);
       return false;
     }
   }
@@ -347,6 +346,9 @@ list_directory("${mountConfig.mountPoint}")
 
   async executePython(code: string, timeout: number = 5000) {
     if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
+    if (code.includes("micropip")) {
+      return formatCallToolError("Package installation disabled");
+    }
     try {
       const { result, output } = await withOutputCapture(
         this.pyodide,

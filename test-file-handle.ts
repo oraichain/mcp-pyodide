@@ -1,7 +1,7 @@
-import { execSync } from 'child_process';
-import fs, { readdirSync } from 'fs';
-import { PyodideManager } from './src/lib/pyodide/pyodide-manager.js';
-import path from 'path';
+import { execSync } from "child_process";
+import fs, { readdirSync } from "fs";
+import { PyodideManager } from "./src/lib/pyodide/pyodide-manager.js";
+import path from "path";
 
 // Function to extract Python packages from a Python script
 function extractPythonPackages(pythonCode: string): string[] {
@@ -17,15 +17,15 @@ function extractPythonPackages(pythonCode: string): string[] {
 }
 
 interface FileSystemHandlePermissionDescriptor {
-  mode?: 'read' | 'readwrite';
+  mode?: "read" | "readwrite";
 }
 
 class FileSystemHandle {
-  readonly kind: 'file' | 'directory'; // Type of handle
+  readonly kind: "file" | "directory"; // Type of handle
   readonly name: string; // Name of the file or directory
   readonly directory: string;
 
-  constructor(directory: string, name: string, kind: 'file' | 'directory') {
+  constructor(directory: string, name: string, kind: "file" | "directory") {
     this.directory = directory;
     this.name = name;
     this.kind = kind;
@@ -37,13 +37,13 @@ class FileSystemHandle {
   queryPermission(
     descriptor?: FileSystemHandlePermissionDescriptor
   ): Promise<PermissionState> {
-    return Promise.resolve('granted');
+    return Promise.resolve("granted");
   }
 
   requestPermission(
     descriptor?: FileSystemHandlePermissionDescriptor
   ): Promise<PermissionState> {
-    return Promise.resolve('granted');
+    return Promise.resolve("granted");
   }
 
   getFile(): Promise<File> {
@@ -58,7 +58,7 @@ class FileSystemHandle {
       },
       name: filename,
       /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/File/lastModified) */
-      lastModified: 111
+      lastModified: 111,
     });
   }
 }
@@ -78,7 +78,7 @@ class FileSystemDirectoryHandle {
   constructor(directory: string) {
     this.directory = path.resolve(directory);
   }
-  kind: 'directory';
+  kind: "directory";
   getDirectoryHandle(
     name: string,
     options?: FileSystemGetDirectoryOptions
@@ -90,7 +90,7 @@ class FileSystemDirectoryHandle {
     options?: FileSystemGetFileOptions
   ): Promise<FileSystemFileHandle> {
     // @ts-ignore
-    const file = new FileSystemFileHandle(this.directory, name, 'file');
+    const file = new FileSystemFileHandle(this.directory, name, "file");
 
     return Promise.resolve(file);
   }
@@ -103,7 +103,7 @@ class FileSystemDirectoryHandle {
   entries(): [string, FileSystemHandle][] {
     const ret: [string, FileSystemHandle][] = [];
     for (const dir of readdirSync(this.directory)) {
-      ret.push([dir, new FileSystemHandle(this.directory, dir, 'file')]);
+      ret.push([dir, new FileSystemHandle(this.directory, dir, "file")]);
     }
     return ret;
   }
@@ -118,7 +118,7 @@ class FileSystemDirectoryHandle {
   values(): FileSystemHandle[] {
     const ret: FileSystemHandle[] = [];
     for (const dir of readdirSync(this.directory)) {
-      ret.push(new FileSystemHandle(this.directory, dir, 'file'));
+      ret.push(new FileSystemHandle(this.directory, dir, "file"));
     }
     return ret;
   }
@@ -131,7 +131,8 @@ class FileSystemDirectoryHandle {
 }
 
 (async () => {
-  const pyodideManager = PyodideManager.getInstance();
+  const sessionId = "local-testing";
+  const pyodideManager = PyodideManager.getInstance(sessionId);
   //   const scriptContent = `
   // import matplotlib.pyplot as plt
 
@@ -155,11 +156,11 @@ class FileSystemDirectoryHandle {
 import glob
 print(glob.glob("/mnt/*/**"))
 `;
-  await pyodideManager.initialize('./cache');
+  await pyodideManager.initialize("./cache");
   const pyodide = pyodideManager.getPyodide()!;
-  const fileHandle = new FileSystemDirectoryHandle('data');
+  const fileHandle = new FileSystemDirectoryHandle("data");
   // @ts-ignore
-  pyodide.mountNativeFS(`/mnt/data`, fileHandle);
+  pyodide.mountNativeFS(`/mnt/${sessionId}/data`, fileHandle);
 
   const packages = extractPythonPackages(scriptContent);
   console.log(packages);
