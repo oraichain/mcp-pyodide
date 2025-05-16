@@ -43,6 +43,18 @@ const TEST_CACHE_DIR = "./cache";
 
   // --- Test cases ---
 
+  // await check("Prevent DoS via large file operations", async () => {
+  //   const result = await pyodideManager.runCode(
+  //     `import numpy as np\narr = np.ones((10000, 10000))\nprint("Allocated memory: ", arr.nbytes)`
+  //   );
+  //   const errorText = getErrorText(result);
+  //   console.log("DEBUG errorText: ", errorText);
+  //   assert(
+  //     errorText.includes("Execution timeout") ||
+  //       errorText.includes("MemoryError")
+  //   );
+  // });
+
   await check(
     "Prevent infinite loops/resource exhaustion (while True)",
     async () => {
@@ -218,18 +230,6 @@ const TEST_CACHE_DIR = "./cache";
         errorText.includes("ImportError")
     );
   });
-
-  // await check("Prevent DoS via large file operations", async () => {
-  //   const result = await pyodideManager.runCode(
-  //     `import numpy as np\narr = np.ones((10000, 10000))\nprint("Allocated memory: ", arr.nbytes)`
-  //   );
-  //   const errorText = getErrorText(result);
-  //   console.log("DEBUG errorText: ", errorText);
-  //   assert(
-  //     errorText.includes("Execution timeout") ||
-  //       errorText.includes("MemoryError")
-  //   );
-  // });
 
   await check("Block environment variable access (sys._getframe)", async () => {
     const result = await pyodideManager.runCode(

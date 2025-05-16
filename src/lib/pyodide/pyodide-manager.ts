@@ -350,10 +350,10 @@ list_directory("${mountPoint}")
         code,
         sessionId: this.sessionId,
       },
-      // resourceLimits: {
-      //   maxOldGenerationSizeMb: 300, // Limit heap size to 100 MB
-      //   maxYoungGenerationSizeMb: 300,
-      // },
+      resourceLimits: {
+        maxOldGenerationSizeMb: 500, // Limit heap size to 100 MB
+        maxYoungGenerationSizeMb: 500,
+      },
     });
     try {
       return await new Promise((resolve, reject) => {
