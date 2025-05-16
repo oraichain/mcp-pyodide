@@ -373,10 +373,7 @@ list_directory("${mountConfig.mountPoint}")
   }
 
   // call this externally, which will call the worker
-  async runCode(
-    code: string,
-    timeout: number = 10000
-  ): Promise<any> {
+  async runCode(code: string, timeout: number = 10000): Promise<any> {
     const pyodideWorkerPath = "./pyodide-worker.js";
     const worker = new Worker(pyodideWorkerPath, {
       workerData: { cmd: "runCode", code, sessionId: this.sessionId },

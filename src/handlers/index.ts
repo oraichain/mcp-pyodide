@@ -99,6 +99,7 @@ function createMCPServer(): Server {
 
       switch (name) {
         case "python_execute": {
+          console.time("python_execute");
           const executePythonArgs = isExecutePythonArgs(args);
           if (executePythonArgs instanceof type.errors) {
             throw executePythonArgs;
@@ -112,6 +113,7 @@ function createMCPServer(): Server {
           //   )
           // );
           const results = await pyodideManager.runCode(code, timeout);
+          console.timeEnd("python_execute");
           return results;
         }
         // case "pyodide_install-packages": {
