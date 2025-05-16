@@ -9,7 +9,7 @@ if (workerData.cmd === "runCode") {
   if (!workerData.sessionId) {
     throw new Error("sessionId is required");
   }
-  const pyodideManager = PyodideManager.getInstance(workerData.sessionId);
+  const pyodideManager = new PyodideManager(workerData.sessionId);
   // first time init
   const isInitialized = await pyodideManager.initialize(TEST_CACHE_DIR);
   if (!isInitialized) {

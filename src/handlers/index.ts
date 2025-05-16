@@ -75,7 +75,7 @@ function createMCPServer(): Server {
     try {
       const { name, arguments: args } = request.params;
       const { sessionId } = args as { sessionId: string };
-      const pyodideManager = PyodideManager.getInstance(sessionId);
+      const pyodideManager = new PyodideManager(sessionId);
 
       if (!args) {
         throw new Error("No arguments provided");
@@ -122,12 +122,10 @@ function createMCPServer(): Server {
         // }
         // NOTE: This case should only be called by trusted clients.
         case "pyodide_list-mounted-directory": {
-          if (!pyodideManager.getPyodide()) {
-            await pyodideManager.initialize(
-              process.env.PYODIDE_CACHE_DIR || "./cache"
-            );
-            await pyodideManager.mountDirectory();
-          }
+          await pyodideManager.initialize(
+            process.env.PYODIDE_CACHE_DIR || "./cache"
+          );
+          await pyodideManager.mountDirectory();
           const listMountedDirectoryArgs = isListMountedDirectoryArgs(args);
           if (listMountedDirectoryArgs instanceof type.errors) {
             throw listMountedDirectoryArgs;
@@ -156,7 +154,7 @@ function createMCPServer(): Server {
 }
 
 async function initializePyodide(sessionId: string) {
-  const pyodideManager = PyodideManager.getInstance(sessionId);
+  const pyodideManager = new PyodideManager(sessionId);
   const cacheDir = process.env.PYODIDE_CACHE_DIR || "./cache";
 
   if (!(await pyodideManager.initialize(cacheDir))) {

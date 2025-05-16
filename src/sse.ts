@@ -31,6 +31,12 @@ export async function runSSEServer() {
   // Used to allow parsing of the body of the request
   app.use(bodyParser.json());
 
+  app.get("/alive", async (req, res) => {
+    res.json({
+      status: "ok",
+    });
+  });
+
   app.get("/sse", async (req, res) => {
     // Set SSE headers
     res.setHeader("Content-Type", "text/event-stream");

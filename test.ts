@@ -1,12 +1,20 @@
 import { PyodideManager } from "./src/lib/pyodide/pyodide-manager.js";
 
 (async () => {
-  const pyodideManager = PyodideManager.getInstance("local-testing");
-    const scriptContent = `
+  const pyodideManager = new PyodideManager("local-testing");
+  const scriptContent = `
   import matplotlib.pyplot as plt
   import pandas as pd
-  import markdown
   import numpy
+  import scipy
+  import sympy
+  import matplotlib
+  import seaborn
+  import plotly
+  import os
+  import pathlib
+  import mistune
+  import PyPDF2
 
   # Data provided by you
   categories = ['Apples', 'Bananas', 'Oranges', 'Grapes']

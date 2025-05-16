@@ -9,7 +9,7 @@ const TEST_CACHE_DIR = "./cache";
   if (!fs.existsSync(TEST_CACHE_DIR)) {
     fs.mkdirSync(TEST_CACHE_DIR, { recursive: true });
   }
-  const pyodideManager = PyodideManager.getInstance(TEST_SESSION_ID);
+  const pyodideManager = new PyodideManager(TEST_SESSION_ID);
 
   function logResult(name, passed, error) {
     if (passed) {

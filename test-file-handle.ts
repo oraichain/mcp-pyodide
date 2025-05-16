@@ -131,7 +131,7 @@ class FileSystemDirectoryHandle {
 
 (async () => {
   const sessionId = "local-testing";
-  const pyodideManager = PyodideManager.getInstance(sessionId);
+  const pyodideManager = new PyodideManager(sessionId);
   //   const scriptContent = `
   // import matplotlib.pyplot as plt
 
