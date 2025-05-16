@@ -8,18 +8,10 @@ import { withOutputCapture } from "../../utils/output-capture.js";
 import {
   formatCallToolError,
   formatCallToolSuccess,
-  contentFormatters,
 } from "../../formatters/index.js";
-import { MIME_TYPES } from "../../lib/mime-types/index.js";
 import { Worker } from "worker_threads";
 
 import type { PyodideInterface } from "pyodide";
-
-// Basic mount point configuration
-interface MountConfig {
-  hostPath: string;
-  mountPoint: string;
-}
 
 interface ResourceInfo {
   name: string;
@@ -32,6 +24,19 @@ const logger = {
   info: console.log,
   error: console.error,
 };
+
+// Function to extract Python packages from a Python script
+function extractPythonPackages(pythonCode: string): string[] {
+  const regex = /^\s*(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gm;
+  let match: RegExpExecArray | null;
+  const packages = new Set<string>();
+
+  while ((match = regex.exec(pythonCode)) !== null) {
+    packages.add(match[1]);
+  }
+
+  return Array.from(packages);
+}
 
 // Download wheel files
 async function downloadWheel(url: string, destPath: string): Promise<string> {
@@ -113,7 +118,6 @@ class PyodideManager {
   private static instances: Map<string, PyodideManager> = new Map();
   private pyodide: PyodideInterface | null = null;
   private sessionId: string;
-  private mountPoints: Map<string, MountConfig> = new Map();
   public readonly preInstalledPackages: string[] = [
     "numpy",
     "scipy",
@@ -129,8 +133,8 @@ class PyodideManager {
     "PyPDF2",
     "reportlab",
   ];
-  private basePath: string = "/mnt";
-
+  private basePath: string = "/workspace";
+  private hostPath: string = "workspace";
   private constructor(sessionId: string) {
     this.sessionId = sessionId;
   }
@@ -145,10 +149,7 @@ class PyodideManager {
     PyodideManager.instances.set(sessionId, instance);
   }
 
-  async initialize(
-    packageCacheDir: string,
-    installPackages: boolean = true
-  ): Promise<boolean> {
+  async initialize(packageCacheDir: string): Promise<boolean> {
     try {
       logger.error("Initializing Pyodide...");
       if (this.pyodide) {
@@ -206,21 +207,9 @@ class PyodideManager {
       });
       this.pyodide.globals.set("js", undefined);
 
-      // Pre-install packages
-      logger.info("Pre-installing packages...");
-      if (installPackages) {
-        await this.installPackage(this.preInstalledPackages.join(" "));
-      }
-      logger.info("Packages pre-installed");
-
-      // Disable package installation
-      this.installPackage = async () => {
-        throw new Error("Package installation disabled");
-      };
       await this.pyodide.runPythonAsync(`
         import sys
         import socket
-        sys.modules['micropip'] = None
         import urllib.request
 
         def blocked_opener(*args, **kwargs):
@@ -250,71 +239,51 @@ class PyodideManager {
     return this.pyodide;
   }
 
-  private getSessionMountPoint(path: string): string {
-    const sessionMountPath = `${this.basePath}/${this.sessionId}`;
-    return `${sessionMountPath}/${path}`;
+  private getSessionMountPoint(): string {
+    return `${this.basePath}/${this.sessionId}`;
   }
 
-  chdir(path: string) {
+  private chdir() {
     if (!this.pyodide) return;
-    const mountPoint = this.getSessionMountPoint(path);
+    const mountPoint = this.getSessionMountPoint();
     this.pyodide.FS.chdir(mountPoint);
   }
 
-  async mountDirectory(name: string, hostPath: string): Promise<boolean> {
+  async mountDirectory(): Promise<boolean> {
     if (!this.pyodide) return false;
     try {
       const absolutePathWithSessionId = path.resolve(
-        `${hostPath}/${this.sessionId}`
+        `${this.hostPath}/${this.sessionId}`
       );
       const regexCheck = /^\/etc|\/root|\.\.\/?/;
       if (
         regexCheck.test(absolutePathWithSessionId) ||
-        regexCheck.test(hostPath)
+        regexCheck.test(this.hostPath)
       ) {
         throw new Error("Mounting restricted paths not allowed");
       }
       if (!fs.existsSync(absolutePathWithSessionId)) {
         fs.mkdirSync(absolutePathWithSessionId, { recursive: true });
       }
-      const mountPoint = this.getSessionMountPoint(name);
+      const mountPoint = this.getSessionMountPoint();
+      logger.error(`Mounting ${mountPoint} to ${absolutePathWithSessionId}`);
       this.pyodide.FS.mkdirTree(mountPoint);
       this.pyodide.FS.mount(
         this.pyodide.FS.filesystems.NODEFS,
         { root: absolutePathWithSessionId },
         mountPoint
       );
-      this.mountPoints.set(mountPoint, {
-        hostPath: absolutePathWithSessionId,
-        mountPoint,
-      });
+      this.chdir();
       return true;
     } catch (error) {
       return false;
     }
   }
 
-  async getMountPoints() {
+  async listMountedDirectory() {
     if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
-    try {
-      const mountPoints = Array.from(this.mountPoints.entries()).map(
-        ([name, config]) => ({
-          name,
-          hostPath: config.hostPath,
-          mountPoint: config.mountPoint,
-        })
-      );
-      return formatCallToolSuccess(JSON.stringify(mountPoints, null, 2));
-    } catch (error) {
-      return formatCallToolError(error);
-    }
-  }
-
-  async listMountedDirectory(mountName: string) {
-    if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
-    const mountConfig = this.mountPoints.get(mountName);
-    if (!mountConfig)
-      return formatCallToolError(`Mount point not found: ${mountName}`);
+    const mountPoint = this.getSessionMountPoint();
+    if (!mountPoint) return formatCallToolError(`Mount point not found`);
     try {
       const pythonCode = `
 import os
@@ -331,7 +300,7 @@ def list_directory(path):
         print(f"Error listing directory: {e}")
         return []
     return contents
-list_directory("${mountConfig.mountPoint}")
+list_directory("${mountPoint}")
 `;
 
       return await this.executePython(pythonCode);
@@ -340,47 +309,51 @@ list_directory("${mountConfig.mountPoint}")
     }
   }
 
-  getMountNameFromPath(filePath: string): string | null {
-    if (!filePath) return null;
-    const normalizedPath = filePath.replace(/\\/g, "/");
-    let longestMatch = "";
-    let matchedMountName: string | null = null;
-    for (const [mountName, config] of this.mountPoints.entries()) {
-      const normalizedHostPath = config.hostPath.replace(/\\/g, "/");
-      if (
-        normalizedPath.startsWith(normalizedHostPath) &&
-        normalizedHostPath.length > longestMatch.length
-      ) {
-        longestMatch = normalizedHostPath;
-        matchedMountName = mountName;
-      }
-    }
-    return matchedMountName;
-  }
+  // getMountNameFromPath(filePath: string): string | null {
+  //   if (!filePath) return null;
+  //   const normalizedPath = filePath.replace(/\\/g, "/");
+  //   let longestMatch = "";
+  //   let matchedMountName: string | null = null;
+  //   for (const [mountName, config] of this.mountPoints.entries()) {
+  //     const normalizedHostPath = config.hostPath.replace(/\\/g, "/");
+  //     if (
+  //       normalizedPath.startsWith(normalizedHostPath) &&
+  //       normalizedHostPath.length > longestMatch.length
+  //     ) {
+  //       longestMatch = normalizedHostPath;
+  //       matchedMountName = mountName;
+  //     }
+  //   }
+  //   return matchedMountName;
+  // }
 
-  getMountPointInfo(uri: string) {
-    let filePath = uri.replace("file://", "");
-    for (const [mountName, config] of this.mountPoints.entries()) {
-      const mountPoint = config.mountPoint;
-      if (filePath.startsWith(mountPoint)) {
-        const relativePath = filePath
-          .slice(mountPoint.length)
-          .replace(/^[/\\]+/, "");
-        return { mountName, mountPoint, relativePath };
-      }
-    }
-    return null;
-  }
+  // getMountPointInfo(uri: string) {
+  //   let filePath = uri.replace("file://", "");
+  //   for (const [mountName, config] of this.mountPoints.entries()) {
+  //     const mountPoint = config.mountPoint;
+  //     if (filePath.startsWith(mountPoint)) {
+  //       const relativePath = filePath
+  //         .slice(mountPoint.length)
+  //         .replace(/^[/\\]+/, "");
+  //       return { mountName, mountPoint, relativePath };
+  //     }
+  //   }
+  //   return null;
+  // }
 
   // call this externally, which will call the worker
   async runCode(code: string, timeout: number = 10000): Promise<any> {
     const pyodideWorkerPath = "./pyodide-worker.js";
     const worker = new Worker(pyodideWorkerPath, {
-      workerData: { cmd: "runCode", code, sessionId: this.sessionId },
-      resourceLimits: {
-        maxOldGenerationSizeMb: 100, // Limit heap size to 100 MB
-        maxYoungGenerationSizeMb: 100,
+      workerData: {
+        cmd: "runCode",
+        code,
+        sessionId: this.sessionId,
       },
+      // resourceLimits: {
+      //   maxOldGenerationSizeMb: 300, // Limit heap size to 100 MB
+      //   maxYoungGenerationSizeMb: 300,
+      // },
     });
     try {
       return await new Promise((resolve, reject) => {
@@ -434,6 +407,14 @@ list_directory("${mountConfig.mountPoint}")
     }
   }
 
+  async installPackages(code: string) {
+    console.time("installPackages");
+    const packages = extractPythonPackages(code);
+    const installer = packages.map((pkg) => this.installPackage(pkg));
+    await Promise.all(installer);
+    console.timeEnd("installPackages");
+  }
+
   async installPackage(packageName: string) {
     if (!this.pyodide) throw new Error("Pyodide not initialized");
     try {
@@ -442,8 +423,11 @@ list_directory("${mountConfig.mountPoint}")
         .map((pkg) => pkg.trim())
         .filter(Boolean);
       if (packages.length === 0) throw new Error("No valid package names");
+      const permittedPackages = packages.filter((pkg) =>
+        this.preInstalledPackages.includes(pkg)
+      );
       const outputs: string[] = [];
-      for (const pkg of packages) {
+      for (const pkg of permittedPackages) {
         try {
           // 1. まずpyodide.loadPackageでインストールを試みる
           outputs.push(`Attempting to install ${pkg} using loadPackage...`);
@@ -568,82 +552,82 @@ list_directory("${mountConfig.mountPoint}")
     }
   }
 
-  async readResource(
-    mountName: string,
-    resourcePath: string
-  ): Promise<{ blob: string; mimeType: string } | { error: string }> {
-    if (!this.pyodide) return { error: "Pyodide not initialized" };
-    const mountConfig = this.mountPoints.get(mountName);
-    if (!mountConfig) return { error: `Mount point not found: ${mountName}` };
-    try {
-      const fullPath = path.join(mountConfig.hostPath, resourcePath);
-      if (!fs.existsSync(fullPath))
-        return { error: `File not found: ${fullPath}` };
-      const ext = path.extname(fullPath).toLowerCase();
-      const mimeType = MIME_TYPES[ext];
-      if (!mimeType) return { error: `Unsupported format: ${ext}` };
-      const imageBuffer = await fs.promises.readFile(fullPath);
-      const base64Data = imageBuffer.toString("base64");
-      return { blob: base64Data, mimeType };
-    } catch (error) {
-      return { error: String(error) };
-    }
-  }
+  // async readResource(
+  //   mountName: string,
+  //   resourcePath: string
+  // ): Promise<{ blob: string; mimeType: string } | { error: string }> {
+  //   if (!this.pyodide) return { error: "Pyodide not initialized" };
+  //   const mountConfig = this.mountPoints.get(mountName);
+  //   if (!mountConfig) return { error: `Mount point not found: ${mountName}` };
+  //   try {
+  //     const fullPath = path.join(mountConfig.hostPath, resourcePath);
+  //     if (!fs.existsSync(fullPath))
+  //       return { error: `File not found: ${fullPath}` };
+  //     const ext = path.extname(fullPath).toLowerCase();
+  //     const mimeType = MIME_TYPES[ext];
+  //     if (!mimeType) return { error: `Unsupported format: ${ext}` };
+  //     const imageBuffer = await fs.promises.readFile(fullPath);
+  //     const base64Data = imageBuffer.toString("base64");
+  //     return { blob: base64Data, mimeType };
+  //   } catch (error) {
+  //     return { error: String(error) };
+  //   }
+  // }
 
-  async listResources(): Promise<ResourceInfo[]> {
-    const resources: ResourceInfo[] = [];
-    const validMimeTypes = new Set(Object.values(MIME_TYPES));
-    const isMatchingMimeType = (filePath: string): string | null => {
-      const ext = path.extname(filePath).toLowerCase();
-      const mimeType = MIME_TYPES[ext];
-      return mimeType && validMimeTypes.has(mimeType) ? mimeType : null;
-    };
-    const scanDirectory = (dirPath: string): void => {
-      try {
-        const items = fs.readdirSync(dirPath);
-        const mountName = this.getMountNameFromPath(dirPath);
-        if (!mountName) return;
-        const config = this.mountPoints.get(mountName);
-        if (!config) return;
-        const { hostPath, mountPoint } = config;
-        for (const item of items) {
-          const fullPath = path.join(dirPath, item);
-          const stat = fs.statSync(fullPath);
-          if (stat.isDirectory()) {
-            scanDirectory(fullPath);
-          } else if (stat.isFile()) {
-            const mimeType = isMatchingMimeType(item);
-            if (mimeType) {
-              const relativePath = path.relative(hostPath, fullPath);
-              const uri = `file://${path.join(mountPoint, relativePath)}`;
-              resources.push({ name: item, uri, mimeType });
-            }
-          }
-        }
-      } catch (error) {
-        logger.error(`Error scanning ${dirPath}:`, error);
-      }
-    };
-    for (const [_, config] of this.mountPoints.entries()) {
-      scanDirectory(config.hostPath);
-    }
-    return resources;
-  }
+  // async listResources(): Promise<ResourceInfo[]> {
+  //   const resources: ResourceInfo[] = [];
+  //   const validMimeTypes = new Set(Object.values(MIME_TYPES));
+  //   const isMatchingMimeType = (filePath: string): string | null => {
+  //     const ext = path.extname(filePath).toLowerCase();
+  //     const mimeType = MIME_TYPES[ext];
+  //     return mimeType && validMimeTypes.has(mimeType) ? mimeType : null;
+  //   };
+  //   const scanDirectory = (dirPath: string): void => {
+  //     try {
+  //       const items = fs.readdirSync(dirPath);
+  //       const mountName = this.getMountNameFromPath(dirPath);
+  //       if (!mountName) return;
+  //       const config = this.mountPoints.get(mountName);
+  //       if (!config) return;
+  //       const { hostPath, mountPoint } = config;
+  //       for (const item of items) {
+  //         const fullPath = path.join(dirPath, item);
+  //         const stat = fs.statSync(fullPath);
+  //         if (stat.isDirectory()) {
+  //           scanDirectory(fullPath);
+  //         } else if (stat.isFile()) {
+  //           const mimeType = isMatchingMimeType(item);
+  //           if (mimeType) {
+  //             const relativePath = path.relative(hostPath, fullPath);
+  //             const uri = `file://${path.join(mountPoint, relativePath)}`;
+  //             resources.push({ name: item, uri, mimeType });
+  //           }
+  //         }
+  //       }
+  //     } catch (error) {
+  //       logger.error(`Error scanning ${dirPath}:`, error);
+  //     }
+  //   };
+  //   for (const [_, config] of this.mountPoints.entries()) {
+  //     scanDirectory(config.hostPath);
+  //   }
+  //   return resources;
+  // }
 
-  async readImage(mountName: string, imagePath: string) {
-    if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
-    try {
-      const resource = await this.readResource(mountName, imagePath);
-      if ("error" in resource) return formatCallToolError(resource.error);
-      const content = contentFormatters.formatImage(
-        resource.blob,
-        resource.mimeType
-      );
-      return formatCallToolSuccess(content);
-    } catch (error) {
-      return formatCallToolError(error);
-    }
-  }
+  // async readImage(mountName: string, imagePath: string) {
+  //   if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
+  //   try {
+  //     const resource = await this.readResource(mountName, imagePath);
+  //     if ("error" in resource) return formatCallToolError(resource.error);
+  //     const content = contentFormatters.formatImage(
+  //       resource.blob,
+  //       resource.mimeType
+  //     );
+  //     return formatCallToolSuccess(content);
+  //   } catch (error) {
+  //     return formatCallToolError(error);
+  //   }
+  // }
 }
 
 export { PyodideManager };

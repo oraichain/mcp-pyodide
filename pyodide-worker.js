@@ -11,15 +11,17 @@ if (workerData.cmd === "runCode") {
   }
   const pyodideManager = PyodideManager.getInstance(workerData.sessionId);
   // first time init
-  const installPackageExists = fs.existsSync(TEST_CACHE_DIR);
-  const isInitialized = await pyodideManager.initialize(
-    TEST_CACHE_DIR,
-    !installPackageExists
-  );
+  const isInitialized = await pyodideManager.initialize(TEST_CACHE_DIR);
   if (!isInitialized) {
     throw new Error("Failed to initialize Pyodide");
   }
-  await pyodideManager.mountDirectory("data", "data");
+  const mountResult = await pyodideManager.mountDirectory();
+  pyodideManager.chdir();
+  if (!mountResult) {
+    throw new Error("Failed to mount directory");
+  }
+
+  await pyodideManager.installPackages(workerData.code);
   const response = await pyodideManager.executePython(workerData.code);
   parentPort.postMessage({ cmd: "response", result: response });
 }

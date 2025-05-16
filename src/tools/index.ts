@@ -41,7 +41,7 @@ export const INSTALL_PYTHON_PACKAGES_TOOL: Tool = {
 };
 
 export const GET_MOUNT_POINTS_TOOL: Tool = {
-  name: 'python_get_dirs',
+  name: 'pyodide_get-mount-points',
   description: 'List mounted directories',
   inputSchema: {
     type: 'object',

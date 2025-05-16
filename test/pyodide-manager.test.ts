@@ -140,17 +140,6 @@ const TEST_CACHE_DIR = "./cache";
     );
   });
 
-  await check("Restrict file system mounting", async () => {
-    let result = await pyodideManager.mountDirectory("/root", "/root");
-    assert(result === false, "Should not be able to mount /root");
-
-    result = await pyodideManager.mountDirectory("/root", "/etc");
-    assert(result === false, "Should not be able to mount /etc");
-
-    result = await pyodideManager.mountDirectory("/root", "../");
-    assert(result === false, "Should not be able to mount ../");
-  });
-
   await check("Restrict file system access (os.listdir /root)", async () => {
     const result = await pyodideManager.runCode(
       `import os\nos.listdir('/root')`
@@ -207,11 +196,9 @@ const TEST_CACHE_DIR = "./cache";
   );
 
   await check("Restrict cross-mount directory access", async () => {
-    const testDir1 = path.join(TEST_CACHE_DIR, "instance1");
-    fs.mkdirSync(testDir1, { recursive: true });
-    await pyodideManager.mountDirectory("instance1", testDir1);
+    await pyodideManager.mountDirectory();
     const result = await pyodideManager.runCode(
-      `open('/mnt/other_instance/file.txt', 'r').read()`
+      `open('/workspace/other_instance/file.txt', 'r').read()`
     );
     const errorText = getErrorText(result);
     assert(

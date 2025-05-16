@@ -2,30 +2,14 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { type } from "arktype";
 
 import * as tools from "../tools/index.js";
-import { ResourceClient } from "../resources/index.js";
+// import { ResourceClient } from "../resources/index.js";
 import { PyodideManager } from "../lib/pyodide/pyodide-manager.js";
 import { formatCallToolError } from "../formatters/index.js";
-
-// Function to extract Python packages from a Python script
-function extractPythonPackages(pythonCode: string): string[] {
-  const regex = /^\s*(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gm;
-  let match: RegExpExecArray | null;
-  const packages = new Set<string>();
-
-  while ((match = regex.exec(pythonCode)) !== null) {
-    packages.add(match[1]);
-  }
-
-  return Array.from(packages);
-}
 
 function createMCPServer(): Server {
   // Create a server instance
@@ -45,7 +29,7 @@ function createMCPServer(): Server {
   const TOOLS: Tool[] = [
     tools.EXECUTE_PYTHON_TOOL,
     // tools.INSTALL_PYTHON_PACKAGES_TOOL,
-    tools.GET_MOUNT_POINTS_TOOL,
+    // tools.GET_MOUNT_POINTS_TOOL,
     tools.LIST_MOUNTED_DIRECTORY_TOOL,
     // tools.READ_IMAGE_TOOL,
   ];
@@ -61,6 +45,7 @@ function createMCPServer(): Server {
   });
 
   const isListMountedDirectoryArgs = type({
+    sessionId: "string",
     mountName: "string",
   });
 
@@ -127,18 +112,28 @@ function createMCPServer(): Server {
         // }
 
         // NOTE: This case should only be called by trusted clients.
-        case "pyodide_get-mount-points": {
-          const results = await pyodideManager.getMountPoints();
-          return results;
-        }
+        // case "pyodide_get-mount-points": {
+        //   if (!pyodideManager.getPyodide()) {
+        //     await pyodideManager.initialize(
+        //       process.env.PYODIDE_CACHE_DIR || "./cache"
+        //     );
+        //   }
+        //   const results = await pyodideManager.getMountPoints();
+        //   return results;
+        // }
         // NOTE: This case should only be called by trusted clients.
         case "pyodide_list-mounted-directory": {
+          if (!pyodideManager.getPyodide()) {
+            await pyodideManager.initialize(
+              process.env.PYODIDE_CACHE_DIR || "./cache"
+            );
+          }
           const listMountedDirectoryArgs = isListMountedDirectoryArgs(args);
           if (listMountedDirectoryArgs instanceof type.errors) {
             throw listMountedDirectoryArgs;
           }
           const { mountName } = listMountedDirectoryArgs;
-          const results = await pyodideManager.listMountedDirectory(mountName);
+          const results = await pyodideManager.listMountedDirectory();
           return results;
         }
         // case "pyodide_read-image": {
@@ -164,14 +159,12 @@ function createMCPServer(): Server {
 async function initializePyodide(sessionId: string) {
   const pyodideManager = PyodideManager.getInstance(sessionId);
   const cacheDir = process.env.PYODIDE_CACHE_DIR || "./cache";
-  const dataDir = process.env.PYODIDE_DATA_DIR || "./data";
 
   if (!(await pyodideManager.initialize(cacheDir))) {
     throw new Error("Failed to initialize Pyodide");
   }
 
-  await pyodideManager.mountDirectory("data", dataDir);
-  pyodideManager.chdir("data");
+  await pyodideManager.mountDirectory();
 }
 
 export { createMCPServer, initializePyodide };

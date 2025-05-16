@@ -67,3 +67,4 @@ cache/
 
 # mcp-pyodide specific
 .temp_wheels/
+workspace/
