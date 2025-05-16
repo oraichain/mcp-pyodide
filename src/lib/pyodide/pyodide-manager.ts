@@ -1,8 +1,9 @@
-import { loadPyodide, PyodideInterface } from "pyodide";
+import { loadPyodide } from "pyodide";
 import * as path from "path";
 import * as fs from "fs";
 import * as https from "https";
 import * as http from "http";
+
 import { withOutputCapture } from "../../utils/output-capture.js";
 import {
   formatCallToolError,
@@ -10,7 +11,11 @@ import {
   contentFormatters,
 } from "../../formatters/index.js";
 import { MIME_TYPES } from "../../lib/mime-types/index.js";
+import { Worker } from "worker_threads";
 
+import type { PyodideInterface } from "pyodide";
+
+// Basic mount point configuration
 interface MountConfig {
   hostPath: string;
   mountPoint: string;
@@ -52,6 +57,7 @@ async function downloadWheel(url: string, destPath: string): Promise<string> {
         return;
       }
       response.pipe(file);
+
       file.on("finish", () => {
         file.close();
         resolve(path.resolve(destPath));
@@ -108,7 +114,7 @@ class PyodideManager {
   private pyodide: PyodideInterface | null = null;
   private sessionId: string;
   private mountPoints: Map<string, MountConfig> = new Map();
-  private preInstalledPackages: string[] = [
+  public readonly preInstalledPackages: string[] = [
     "numpy",
     "scipy",
     "sympy",
@@ -123,6 +129,7 @@ class PyodideManager {
     "PyPDF2",
     "reportlab",
   ];
+  private basePath: string = "/mnt";
 
   private constructor(sessionId: string) {
     this.sessionId = sessionId;
@@ -130,7 +137,7 @@ class PyodideManager {
 
   static getInstance(sessionId: string): PyodideManager {
     if (!PyodideManager.instances.has(sessionId))
-      PyodideManager.instances.set(sessionId, new PyodideManager(sessionId));
+      PyodideManager.setInstance(sessionId, new PyodideManager(sessionId));
     return PyodideManager.instances.get(sessionId)!;
   }
 
@@ -138,9 +145,16 @@ class PyodideManager {
     PyodideManager.instances.set(sessionId, instance);
   }
 
-  async initialize(packageCacheDir: string): Promise<boolean> {
+  async initialize(
+    packageCacheDir: string,
+    installPackages: boolean = true
+  ): Promise<boolean> {
     try {
       logger.error("Initializing Pyodide...");
+      if (this.pyodide) {
+        logger.error("Pyodide already initialized");
+        return true;
+      }
       this.pyodide = await loadPyodide({
         packageCacheDir,
         stdout: () => {},
@@ -194,7 +208,9 @@ class PyodideManager {
 
       // Pre-install packages
       logger.info("Pre-installing packages...");
-      await this.installPackage(this.preInstalledPackages.join(" "));
+      if (installPackages) {
+        await this.installPackage(this.preInstalledPackages.join(" "));
+      }
       logger.info("Packages pre-installed");
 
       // Disable package installation
@@ -219,20 +235,30 @@ class PyodideManager {
         socket.gethostbyname = blocked_socket_op  # Block DNS resolution
       `);
 
-      // // Restrict /tmp
       this.pyodide.FS.mkdirTree("/tmp");
       // this.pyodide.FS.chmod("/tmp", 0o555);
 
       logger.info("Pyodide initialized");
       return true;
     } catch (error) {
-      logger.error("Failed to initialize Pyodide:", error);
+      logger.error("Failed to initialize Pyodide with error:", error);
       return false;
     }
   }
 
   getPyodide(): PyodideInterface | null {
     return this.pyodide;
+  }
+
+  private getSessionMountPoint(path: string): string {
+    const sessionMountPath = `${this.basePath}/${this.sessionId}`;
+    return `${sessionMountPath}/${path}`;
+  }
+
+  chdir(path: string) {
+    if (!this.pyodide) return;
+    const mountPoint = this.getSessionMountPoint(path);
+    this.pyodide.FS.chdir(mountPoint);
   }
 
   async mountDirectory(name: string, hostPath: string): Promise<boolean> {
@@ -242,21 +268,23 @@ class PyodideManager {
         `${hostPath}/${this.sessionId}`
       );
       const regexCheck = /^\/etc|\/root|\.\.\/?/;
-      if (regexCheck.test(absolutePathWithSessionId) || regexCheck.test(hostPath)) {
+      if (
+        regexCheck.test(absolutePathWithSessionId) ||
+        regexCheck.test(hostPath)
+      ) {
         throw new Error("Mounting restricted paths not allowed");
       }
       if (!fs.existsSync(absolutePathWithSessionId)) {
         fs.mkdirSync(absolutePathWithSessionId, { recursive: true });
       }
-      const nameWithSessionId = `${this.sessionId}/${name}`;
-      const mountPoint = `/mnt/${nameWithSessionId}`;
+      const mountPoint = this.getSessionMountPoint(name);
       this.pyodide.FS.mkdirTree(mountPoint);
       this.pyodide.FS.mount(
         this.pyodide.FS.filesystems.NODEFS,
-        { root: absolutePathWithSessionId, readOnly: true },
+        { root: absolutePathWithSessionId },
         mountPoint
       );
-      this.mountPoints.set(nameWithSessionId, {
+      this.mountPoints.set(mountPoint, {
         hostPath: absolutePathWithSessionId,
         mountPoint,
       });
@@ -306,7 +334,7 @@ def list_directory(path):
 list_directory("${mountConfig.mountPoint}")
 `;
 
-      return await this.executePython(pythonCode, 5000);
+      return await this.executePython(pythonCode);
     } catch (error) {
       return formatCallToolError(error);
     }
@@ -344,7 +372,44 @@ list_directory("${mountConfig.mountPoint}")
     return null;
   }
 
-  async executePython(code: string, timeout: number = 5000) {
+  // call this externally, which will call the worker
+  async runCode(
+    code: string,
+    timeout: number = 10000
+  ): Promise<any> {
+    const pyodideWorkerPath = "./pyodide-worker.js";
+    const worker = new Worker(pyodideWorkerPath, {
+      workerData: { cmd: "runCode", code, sessionId: this.sessionId },
+      resourceLimits: {
+        maxOldGenerationSizeMb: 100, // Limit heap size to 100 MB
+        maxYoungGenerationSizeMb: 100,
+      },
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        worker.on("message", (msg) => {
+          if (msg.cmd === "response") {
+            resolve(msg.result);
+          }
+        });
+        worker.on("error", reject);
+        worker.on("exit", (code) => {
+          if (code !== 0) {
+            reject(new Error(`Worker stopped with exit code: ${code}`));
+          }
+        });
+        setTimeout(() => {
+          resolve(new Error("Timeout error"));
+        }, timeout);
+      });
+    } catch (ex) {
+      throw ex;
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  private async executePython(code: string) {
     if (!this.pyodide) return formatCallToolError("Pyodide not initialized");
     if (code.includes("micropip")) {
       return formatCallToolError("Package installation disabled");
@@ -353,14 +418,11 @@ list_directory("${mountConfig.mountPoint}")
       const { result, output } = await withOutputCapture(
         this.pyodide,
         async () => {
-          const executionResult = await Promise.race([
-            this.pyodide!.runPythonAsync(code),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Execution timeout")), timeout)
-            ),
-          ]);
+          const executionResult = await this.pyodide!.runPythonAsync(code);
+          // Memory cleanup
           this.pyodide!.globals.clear();
           await this.pyodide!.runPythonAsync("import gc; gc.collect()");
+
           return executionResult;
         },
         { suppressConsole: true }
@@ -382,23 +444,99 @@ list_directory("${mountConfig.mountPoint}")
         .split(" ")
         .map((pkg) => pkg.trim())
         .filter(Boolean);
-      if (!packages.length) throw new Error("No valid package names");
+      if (packages.length === 0) throw new Error("No valid package names");
       const outputs: string[] = [];
       for (const pkg of packages) {
         try {
-          outputs.push(`Installing ${pkg} using loadPackage...`);
-          await this.pyodide.loadPackage(pkg, {
-            messageCallback: (msg) => outputs.push(`loadPackage: ${msg}`),
-            errorCallback: (err) => {
-              throw new Error(err);
-            },
-          });
-          outputs.push(`Installed ${pkg} using loadPackage`);
-          continue;
-        } catch (loadPackageError) {
-          outputs.push(
-            `loadPackage failed for ${pkg}: ${String(loadPackageError)}`
-          );
+          // 1. まずpyodide.loadPackageでインストールを試みる
+          outputs.push(`Attempting to install ${pkg} using loadPackage...`);
+
+          try {
+            await this.pyodide.loadPackage(pkg, {
+              messageCallback: (msg) => {
+                outputs.push(`loadPackage: ${msg}`);
+              },
+              errorCallback: (err) => {
+                throw new Error(err);
+              },
+            });
+            outputs.push(`Successfully installed ${pkg} using loadPackage.`);
+            continue; // このパッケージは成功したので次のパッケージへ
+          } catch (loadPackageError) {
+            outputs.push(
+              `loadPackage failed for ${pkg}: ${
+                loadPackageError instanceof Error
+                  ? loadPackageError.message
+                  : String(loadPackageError)
+              }`
+            );
+            outputs.push(`Falling back to micropip for ${pkg}...`);
+
+            // loadPackageが失敗した場合は、micropipを使用する
+            // micropipがまだロードされていない場合はロードする
+            try {
+              // micropipをロードする
+              await this.pyodide.loadPackage("micropip", {
+                messageCallback: (msg) => {
+                  outputs.push(`loadPackage: ${msg}`);
+                },
+                errorCallback: (err) => {
+                  throw new Error(err);
+                },
+              });
+            } catch (micropipLoadError) {
+              throw new Error(
+                `Failed to load micropip: ${
+                  micropipLoadError instanceof Error
+                    ? micropipLoadError.message
+                    : String(micropipLoadError)
+                }`
+              );
+            }
+
+            // 2. micropipを使ったインストール処理
+            // 一時ディレクトリを作成
+            const tempDir = process.env.PYODIDE_CACHE_DIR || "./cache";
+            if (!fs.existsSync(tempDir)) {
+              fs.mkdirSync(tempDir, { recursive: true });
+            }
+
+            // Pyodide内のtempディレクトリを作成
+            this.pyodide.FS.mkdirTree("/tmp/wheels");
+
+            // PyPIからwheelのURLを取得
+            const wheelUrl = await getWheelUrl(pkg);
+            const wheelFilename = path.basename(wheelUrl);
+            const localWheelPath = path.join(tempDir, wheelFilename);
+
+            // wheelをダウンロード
+            outputs.push(`Downloading wheel for ${pkg}...`);
+            await downloadWheel(wheelUrl, localWheelPath);
+
+            // wheelをPyodideのファイルシステムにコピー
+            const wheelData = fs.readFileSync(localWheelPath);
+            const pyodideWheelPath = `/tmp/wheels/${wheelFilename}`;
+            this.pyodide.FS.writeFile(pyodideWheelPath, wheelData);
+
+            // micropipでインストール
+            const { output } = await withOutputCapture(
+              this.pyodide,
+              async () => {
+                await this.pyodide!.runPythonAsync(`
+                  import micropip
+                  await micropip.install("emfs:${pyodideWheelPath}")
+                `);
+              },
+              { suppressConsole: true }
+            );
+
+            outputs.push(
+              `Successfully installed ${pkg} using micropip: ${output}`
+            );
+          }
+        } catch (error) {
+          // 個別のパッケージのエラーを記録して続行
+          outputs.push(`loadPackage failed for ${pkg}: ${String(error)}`);
           outputs.push(`Falling back to micropip...`);
           const tempDir = process.env.PYODIDE_CACHE_DIR || "./cache";
           if (!fs.existsSync(tempDir))

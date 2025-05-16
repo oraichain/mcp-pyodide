@@ -103,7 +103,7 @@ function createMCPServer(): Server {
           if (executePythonArgs instanceof type.errors) {
             throw executePythonArgs;
           }
-          const { code, timeout = 5000, sessionId } = executePythonArgs;
+          const { code, timeout = 5000 } = executePythonArgs;
           // Don't allow to install packages. Only pre-installed packages are allowed.
           // // install required packages
           // await Promise.all(
@@ -111,7 +111,7 @@ function createMCPServer(): Server {
           //     pyodideManager.installPackage(pkg)
           //   )
           // );
-          const results = await pyodideManager.executePython(code, timeout);
+          const results = await pyodideManager.runCode(code, timeout);
           return results;
         }
         // case "pyodide_install-packages": {
@@ -169,6 +169,7 @@ async function initializePyodide(sessionId: string) {
   }
 
   await pyodideManager.mountDirectory("data", dataDir);
+  pyodideManager.chdir("data");
 }
 
 export { createMCPServer, initializePyodide };

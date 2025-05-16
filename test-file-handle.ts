@@ -1,4 +1,3 @@
-import { execSync } from "child_process";
 import fs, { readdirSync } from "fs";
 import { PyodideManager } from "./src/lib/pyodide/pyodide-manager.js";
 import path from "path";
@@ -156,17 +155,7 @@ class FileSystemDirectoryHandle {
 import glob
 print(glob.glob("/mnt/*/**"))
 `;
-  await pyodideManager.initialize("./cache");
-  const pyodide = pyodideManager.getPyodide()!;
-  const fileHandle = new FileSystemDirectoryHandle("data");
-  // @ts-ignore
-  pyodide.mountNativeFS(`/mnt/${sessionId}/data`, fileHandle);
-
-  const packages = extractPythonPackages(scriptContent);
-  console.log(packages);
-  await Promise.all(packages.map((pkg) => pyodideManager.installPackage(pkg)));
-  console.log(await pyodideManager.executePython(scriptContent, 10000));
-
+  console.log(await pyodideManager.runCode(scriptContent, 10000));
   // const output = execSync(`chafa data/chart.png`).toString();
   // console.log(output);
   process.exit();
