@@ -65,13 +65,9 @@ export const LIST_MOUNTED_DIRECTORY_TOOL: Tool = {
         type: 'string',
         description: 'User session ID'
       },
-      mountName: {
-        type: 'string',
-        description: 'Name of the mount point'
-      }
     },
-    required: ['sessionId', 'mountName']
-  }
+    required: ["sessionId"],
+  },
 };
 
 export const READ_IMAGE_TOOL: Tool = {

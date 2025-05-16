@@ -46,7 +46,6 @@ function createMCPServer(): Server {
 
   const isListMountedDirectoryArgs = type({
     sessionId: "string",
-    mountName: "string",
   });
 
   const isReadImageArgs = type({
@@ -89,7 +88,7 @@ function createMCPServer(): Server {
           if (executePythonArgs instanceof type.errors) {
             throw executePythonArgs;
           }
-          const { code, timeout = 5000 } = executePythonArgs;
+          const { code, timeout = 30000 } = executePythonArgs;
           // Don't allow to install packages. Only pre-installed packages are allowed.
           // // install required packages
           // await Promise.all(
@@ -127,12 +126,12 @@ function createMCPServer(): Server {
             await pyodideManager.initialize(
               process.env.PYODIDE_CACHE_DIR || "./cache"
             );
+            await pyodideManager.mountDirectory();
           }
           const listMountedDirectoryArgs = isListMountedDirectoryArgs(args);
           if (listMountedDirectoryArgs instanceof type.errors) {
             throw listMountedDirectoryArgs;
           }
-          const { mountName } = listMountedDirectoryArgs;
           const results = await pyodideManager.listMountedDirectory();
           return results;
         }
